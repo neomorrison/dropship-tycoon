@@ -1,5 +1,6 @@
 // Asset URL helpers (respects Vite base path for GitHub Pages).
-const BASE = import.meta.env.BASE_URL
+// import.meta.env is undefined under tsx/vitest headless runs
+const BASE: string = (import.meta as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? '/'
 export const asset = (path: string) => `${BASE}assets/${path}`
 export const productImage = (catalogId: string) => asset(`products/${catalogId}.webp`)
 export const roomImage = (tier: number | 'mcdoodles' | 'title') => asset(`rooms/${typeof tier === 'number' ? `tier${tier}` : tier}.webp`)
