@@ -19,6 +19,10 @@
   background-repeat: no-repeat;
   animation: sh-kenburns 40s ease-in-out infinite alternate;
 }
+.sh-title-bg { transition: opacity 0.9s ease; }
+.sh-title-bg.is-hidden { opacity: 0; pointer-events: none; }
+/* behind the live diorama: the same dusk sky as the painted title */
+.sh-title-sky { position: absolute; inset: 0; background: linear-gradient(180deg, #c9b6ff 0%, #f3b8d8 46%, #ffd2a8 74%, #f6c9b6 100%); }
 .sh-title-glow {
   position: absolute;
   inset: 0;
@@ -324,3 +328,4 @@
 @media (max-height: 640px) and (min-width: 901px) {
   .sh-logo { top: 12px; transform: translateX(-50%) scale(0.78); transform-origin: 50% 0; }
 }
+.sh-look-loading { min-height: 330px; border-radius: 20px; background: radial-gradient(ellipse 80% 60% at 30% 38%, #fff8ef 0%, #fbe3e3 55%, #e9d9f3 100%); }

@@ -7,7 +7,10 @@
 // ============================================================================
 
 import type { Niche, Archetype } from '../data/productList'
+import type { Look } from '../three/types'
 export type { Niche, Archetype }
+/** a person's look in the 3D world (src/three/types.ts; pure type, no three.js import) */
+export type PlayerLook = Look
 
 export type Difficulty = 'chill' | 'normal' | 'realistic'
 export type Platform = 'fadbook' | 'tiktak'
@@ -195,6 +198,9 @@ export interface PlayerState {
   lastSocialDay?: Day
   /** running needs stats for the current day (reset at midnight) */
   today?: { moodSum: number; hours: number; lowEnergyHours: number }
+  // ---- optional (ui-shell) ----
+  /** how the player looks in the 3D room (missing on old saves: the default player look) */
+  look?: PlayerLook
 }
 
 export type JobRank = 'crew' | 'shift_lead' | 'manager'

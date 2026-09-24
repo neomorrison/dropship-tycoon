@@ -135,13 +135,23 @@ export function dismissToast(id: string) {
 // Per-browser preferences (localStorage, best effort)
 // ---------------------------------------------------------------------------
 const PREF_KEY = 'dropship-tycoon:shell'
-interface ShellPrefs { recapToasts: boolean; coachCollapsed: boolean }
-const DEFAULT_PREFS: ShellPrefs = { recapToasts: true, coachCollapsed: false }
+export type GraphicsPref = 'auto' | 'high' | 'low'
+interface ShellPrefs {
+  recapToasts: boolean
+  coachCollapsed: boolean
+  /** live 3D room (falls back to the painted room when off or when WebGL can't run) */
+  room3d: boolean
+  graphics: GraphicsPref
+}
+const DEFAULT_PREFS: ShellPrefs = { recapToasts: true, coachCollapsed: false, room3d: true, graphics: 'auto' }
+const PREF_KEYS = Object.keys(DEFAULT_PREFS) as (keyof ShellPrefs)[]
 
 function readPrefs(): ShellPrefs {
   try {
     const raw = localStorage.getItem(PREF_KEY)
-    return raw ? { ...DEFAULT_PREFS, ...(JSON.parse(raw) as Partial<ShellPrefs>) } : DEFAULT_PREFS
+    const p = raw ? { ...DEFAULT_PREFS, ...(JSON.parse(raw) as Partial<ShellPrefs>) } : DEFAULT_PREFS
+    if (p.graphics !== 'auto' && p.graphics !== 'high' && p.graphics !== 'low') p.graphics = 'auto'
+    return p
   } catch {
     return DEFAULT_PREFS
   }
@@ -153,23 +163,27 @@ export const useShellPrefs = create<PrefStore>()(set => ({
   set: p => {
     set(p)
     try {
-      const { recapToasts, coachCollapsed } = { ...prefsSnapshot(), ...p }
-      localStorage.setItem(PREF_KEY, JSON.stringify({ recapToasts, coachCollapsed }))
+      localStorage.setItem(PREF_KEY, JSON.stringify(prefsSnapshot()))
     } catch {
       /* storage unavailable: preference lasts for this session only */
     }
   },
 }))
 const prefsSnapshot = (): ShellPrefs => {
-  const { recapToasts, coachCollapsed } = useShellPrefs.getState()
-  return { recapToasts, coachCollapsed }
+  const st = useShellPrefs.getState()
+  const out = {} as Record<keyof ShellPrefs, unknown>
+  for (const k of PREF_KEYS) out[k] = st[k]
+  return out as ShellPrefs
 }
 
 /** If Kev's room bubble covers `el` (a hotspot or its menu), tuck him down to his face + badge. */
 export function tuckCoachIfCovering(el: Element | null) {
+  if (el) tuckCoachIfCoveringBox(el.getBoundingClientRect())
+}
+/** Same, for a viewport box (a 3D object's projected rect). */
+export function tuckCoachIfCoveringBox(a: { left: number; top: number; right: number; bottom: number }) {
   const k = document.querySelector('.sh-coach')
-  if (!el || !k) return
-  const a = el.getBoundingClientRect()
+  if (!k) return
   const b = k.getBoundingClientRect()
   if (a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom) useShell.getState().set({ coachTucked: true })
 }

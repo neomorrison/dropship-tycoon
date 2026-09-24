@@ -1,4 +1,4 @@
-import type { Difficulty, GameState } from './types'
+import type { Difficulty, GameState, PlayerLook } from './types'
 import { START_DATE, START_HOUR } from './time'
 import { createAdsState, createCreativeState } from '../sim/ads'
 import { createStoreState } from '../sim/store'
@@ -9,7 +9,7 @@ import { createCoachState, createEventsState, eventsOnNewGame } from '../sim/eve
 
 export const SAVE_VERSION = 1
 
-export interface NewGameOptions { playerName: string; difficulty: Difficulty; seed?: number }
+export interface NewGameOptions { playerName: string; difficulty: Difficulty; seed?: number; look?: PlayerLook }
 
 export function createNewGame(o: NewGameOptions): GameState {
   const seed = o.seed ?? Math.floor(Math.random() * 2 ** 31)
@@ -38,6 +38,7 @@ export function createNewGame(o: NewGameOptions): GameState {
     flags: {},
     seq: 0,
   }
+  if (o.look) s.player.look = { ...o.look, ...(o.look.acc ? { acc: [...o.look.acc] } : {}) }
   s.catalog = createCatalogState(s)
   s.creatives = createCreativeState(s)
   lifeOnNewGame(s)

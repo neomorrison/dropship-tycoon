@@ -447,3 +447,26 @@
   .sh-work-text b { font-size: 13.5px; }
   .sh-work-text span { font-size: 11px; }
 }
+
+/* ==========================================================================
+   Live 3D room (scene3d/): shell-side tweaks. The sleep and away cards sit low
+   so the room (and the person in bed) stays visible; the head bubbles replace
+   the overlay's own Zzz.
+   ========================================================================== */
+.sh-scene.is-3d .sh-sleep {
+  place-items: end center;
+  padding-bottom: 18px;
+  background: radial-gradient(ellipse 75% 70% at 50% 42%, rgba(20, 24, 70, 0) 45%, rgba(8, 10, 40, 0.42));
+}
+.sh-scene.is-3d .sh-sleep .sh-zzz { display: none; }
+.sh-scene.is-3d .sh-out { place-items: end center; padding-bottom: 18px; background: transparent; }
+.sh-scene.is-3d .sh-3d-canvas { transition: filter 1.2s ease 2.5s; }
+.sh-scene.is-3d.is-out .sh-3d-canvas { filter: saturate(0.55) brightness(0.98); }
+/* the painted room crossfades out under the canvas */
+.sh-scene .sh-3d-canvas { background: transparent; }
+
+/* settings: segmented graphics picker, look save row */
+.sh-set-seg { margin: 0; min-width: 190px; }
+.sh-look-save { justify-content: flex-end; margin: 14px 0 0; }
+.sh-ov-look { width: min(820px, 100%); }
+.sh-ov-look .sh-ov-body { padding-top: 16px; }

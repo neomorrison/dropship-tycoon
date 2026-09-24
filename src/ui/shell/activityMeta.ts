@@ -4,7 +4,8 @@
 import type { ActivityKind, SiteId } from '../../core/types'
 import { activityDefs, type ActivityDef } from '../../sim/life'
 
-export type HotspotKey = 'bed' | 'computer' | 'fridge' | 'door' | 'garage' | 'counter' | 'fryer' | 'exit'
+/** clickable things in a room ('couch' and 'tv' exist only in the 3D rooms) */
+export type HotspotKey = 'bed' | 'computer' | 'fridge' | 'door' | 'garage' | 'counter' | 'fryer' | 'exit' | 'couch' | 'tv'
 
 export interface ActivityMeta {
   emoji: string
