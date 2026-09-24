@@ -4,8 +4,8 @@ import { useMemo, useState } from 'react'
 import type { ShopiflyPageProps } from '../route'
 import type { Order } from '../../../../core/types'
 import { act, useGSShallow } from '../../../../core/store'
-import { dayOf } from '../../../../core/time'
-import { fulfillOrders } from '../../../../sim/store'
+import { dayOf, formatDate, hourOfDay } from '../../../../core/time'
+import { fulfillOrders, PAYMENT_LABELS, sourceLabel } from '../../../../sim/store'
 import {
   Banner, Card, EmptyState, IndexFilters, IndexTable, InlineStack, Page, PolarisProvider, Text, type SortDirection,
 } from '../../../kit/polaris'
@@ -15,7 +15,12 @@ import {
   deliveryMethod, deliveryStatus, fulfillmentBadge, isArchived, itemsLabel, needsFulfillment, openOrderIdSet, orderTags,
   paymentBadge, productTitle,
 } from '../core/orders'
-import { listDate, usd } from '../core/format'
+import { capMinute, listDate, orderMinute, usd } from '../core/format'
+import { ExportModal } from '../core/ExportModal'
+
+const PAYMENT_METHOD_LABEL: Record<NonNullable<Order['paymentMethod']>, string> = {
+  card: 'Credit card', shop_pay: PAYMENT_LABELS.shopPay, paypal: PAYMENT_LABELS.paypal, bnpl: PAYMENT_LABELS.bnpl,
+}
 
 type View = 'all' | 'unfulfilled' | 'unpaid' | 'open' | 'archived'
 const VIEWS: { id: View; label: string }[] = [
@@ -27,11 +32,12 @@ const VIEWS: { id: View; label: string }[] = [
 ]
 
 interface OrdersStats { orders: number; units: number; returns: number; fulfilled: number; delivered: number }
-function stats(list: Order[], from: number, to: number): OrdersStats {
+/** `cutoff`: only count orders placed on the last day up to this hour of day (comparison with a period in progress) */
+function stats(list: Order[], from: number, to: number, cutoff = 23): OrdersStats {
   const out = { orders: 0, units: 0, returns: 0, fulfilled: 0, delivered: 0 }
   for (const o of list) {
     const d = dayOf(o.hour)
-    if (d >= from && d <= to) {
+    if (d >= from && d <= to && (d < to || hourOfDay(o.hour) <= cutoff)) {
       out.orders++
       out.units += o.qty
       out.returns += o.refunded
@@ -64,6 +70,7 @@ export default function Orders({ navigate }: ShopiflyPageProps) {
   const [q, setQ] = useState('')
   const [sort, setSort] = useState<{ value: string; direction: SortDirection }>({ value: 'date', direction: 'descending' })
   const [selected, setSelected] = useState<string[]>([])
+  const [exporting, setExporting] = useState(false)
 
   const openIds = useMemo(() => openOrderIdSet(tickets, chargebacks), [tickets, chargebacks])
   const counts = useMemo(() => {
@@ -95,7 +102,9 @@ export default function Orders({ navigate }: ShopiflyPageProps) {
   }, [orders, view, q, openIds, products])
 
   const cur = useMemo(() => stats(orders, r.range.from, r.range.to), [orders, r.range])
-  const prev = useMemo(() => (r.cmp ? stats(orders, r.cmp.from, r.cmp.to) : null), [orders, r.cmp])
+  // a range ending today is still in progress: orders placed are compared up to the same hour
+  const cutoff = r.range.to === today ? hourOfDay(now) : 23
+  const prev = useMemo(() => (r.cmp ? stats(orders, r.cmp.from, r.cmp.to, cutoff) : null), [orders, r.cmp, cutoff])
   const spark = useMemo(() => {
     // daily sparklines over the selected range (at least the last 7 days for 1-day ranges)
     const from = Math.min(r.range.from, r.range.to - 6)
@@ -138,7 +147,7 @@ export default function Orders({ navigate }: ShopiflyPageProps) {
 
   return (
     <PolarisProvider>
-      <Page title="Orders" fullWidth>
+      <Page title="Orders" fullWidth secondaryActions={[{ content: 'Export', onAction: () => setExporting(true) }]}>
         <Card padding="0">
           <div className="sf-orders-metrics">
             <div className="sf-orders-metrics-range">
@@ -190,11 +199,20 @@ export default function Orders({ navigate }: ShopiflyPageProps) {
             resourceName={{ singular: 'order', plural: 'orders' }}
             selectedIds={selected}
             onSelectionChange={setSelected}
-            promotedBulkActions={waiting.length ? [{ content: 'Fulfill orders', onAction: fulfillIds }] : []}
+            promotedBulkActions={!waiting.length ? [] : [{
+              content: (() => {
+                const n = selected.filter(id => waiting.some(o => String(o.id) === id)).length
+                return n ? `Fulfill ${n} order${n === 1 ? '' : 's'}` : 'Fulfill orders'
+              })(),
+              // only orders still waiting for their supplier order can be fulfilled
+              disabled: !selected.some(id => waiting.some(o => String(o.id) === id)),
+              onAction: fulfillIds,
+            }]}
             onRowClick={o => navigate(`orders/${o.id}`)}
             sort={{ columnId: sort.value, direction: sort.direction }}
             onSortChange={st => setSort({ value: st.columnId, direction: st.direction })}
             pageSize={50}
+            resetPageKey={`${view}|${q}`}
             rowTone={o => (o.cancelled || o.financial === 'refunded' ? 'subdued' : undefined)}
             emptyState={
               <EmptyState heading={q ? 'No orders found' : `No ${VIEWS[view].label.toLowerCase()} orders`} image="search" compact>
@@ -211,7 +229,7 @@ export default function Orders({ navigate }: ShopiflyPageProps) {
                   </InlineStack>
                 ),
               },
-              { id: 'date', title: 'Date', sortValue: o => o.hour + o.id / 1e6, nowrap: true, render: o => listDate(o.hour, now, o.id) },
+              { id: 'date', title: 'Date', sortValue: o => o.hour + o.id / 1e6, nowrap: true, render: o => listDate(o.hour, now, o.id, orderMinute(orders, o)) },
               { id: 'customer', title: 'Customer', sortValue: o => o.customer.name, nowrap: true, render: o => o.customer.name },
               { id: 'channel', title: 'Channel', nowrap: true, render: () => 'Online Store' },
               { id: 'total', title: 'Total', numeric: true, sortValue: o => o.total, render: o => usd(o.total) },
@@ -231,6 +249,27 @@ export default function Orders({ navigate }: ShopiflyPageProps) {
           />
         </Card>
       </Page>
+      {exporting && (
+        <ExportModal
+          open
+          onClose={() => setExporting(false)}
+          resource="orders"
+          filename={`orders_export_day${today + 1}.csv`}
+          scopes={[
+            { value: 'all', label: 'All orders', rows: orders.slice().reverse() },
+            // the current tab / search, when it narrows the list
+            ...(view > 0 || q.trim() ? [{ value: 'view', label: q.trim() ? 'Orders matching your search' : `${VIEWS[view].label} orders`, rows: filtered.slice().reverse() }] : []),
+            { value: 'selected', label: 'Selected orders', rows: orders.filter(o => selected.includes(String(o.id))).reverse() },
+          ]}
+          headings={['Name', 'Email', 'Financial Status', 'Fulfillment Status', 'Created at', 'Subtotal', 'Shipping', 'Discount Amount', 'Total', 'Refunded Amount', 'Lineitem quantity', 'Lineitem name', 'Lineitem variant', 'Billing Name', 'Shipping City', 'Shipping Province', 'Shipping Country', 'Payment Method', 'Source']}
+          toRow={o => [
+            `#${o.id}`, o.customer.email, o.financial, o.fulfillment, `${formatDate(dayOf(o.hour), 'iso')} ${String(hourOfDay(o.hour)).padStart(2, '0')}:${String(capMinute(orderMinute(orders, o), o.hour, now)).padStart(2, '0')}`,
+            (o.subtotal + o.upsell).toFixed(2), o.shippingCharged.toFixed(2), o.discount.toFixed(2), o.total.toFixed(2), o.refunded.toFixed(2),
+            o.qty, productTitle(products, o), o.variant ?? '', o.customer.name, o.customer.city, o.customer.region, 'US',
+            o.paymentMethod ? PAYMENT_METHOD_LABEL[o.paymentMethod] : 'Credit card', sourceLabel(o.source),
+          ]}
+        />
+      )}
     </PolarisProvider>
   )
 }

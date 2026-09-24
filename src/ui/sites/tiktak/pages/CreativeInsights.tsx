@@ -15,6 +15,11 @@ import { creativeThumb } from './create/Pickers'
 
 interface VideoRow { c: Creative; b: Bundle; ads: number }
 const rate = (a: number, b: number) => (b > 0 ? a / b : null)
+const sumB = (rs: VideoRow[]): Bundle => {
+  const b: Bundle = { stats: emptyStats(), conv: 0 }
+  for (const x of rs) { addStats(b.stats, x.b.stats); b.conv += x.b.conv }
+  return b
+}
 
 export default function CreativeInsights() {
   const s = useGame()
@@ -55,14 +60,14 @@ export default function CreativeInsights() {
       ),
     },
     { id: 'cost', header: 'Cost', align: 'right', width: 110, sortValue: x => x.b.stats.spend, render: x => <MetricCell value={amFmt.money(x.b.stats.spend)} />, total: rs => <MetricCell value={amFmt.money(rs.reduce((a, x) => a + x.b.stats.spend, 0))} /> },
-    { id: 'imps', header: 'Impressions', align: 'right', width: 120, sortValue: x => x.b.stats.impressions, render: x => <MetricCell value={amFmt.int(x.b.stats.impressions)} /> },
-    { id: 'r2', header: '2-second view rate', headerTip: 'Video views at 2s ÷ Impressions. How often the first seconds stop the scroll.', align: 'right', width: 150, sortValue: x => rate(x.b.stats.videoViewsShort, x.b.stats.impressions), render: x => <MetricCell value={amFmt.pct(rate(x.b.stats.videoViewsShort, x.b.stats.impressions))} /> },
-    { id: 'r6', header: '6-second view rate', headerTip: 'Video views at 6s ÷ Impressions.', align: 'right', width: 150, sortValue: x => rate(x.b.stats.videoViewsLong, x.b.stats.impressions), render: x => <MetricCell value={amFmt.pct(rate(x.b.stats.videoViewsLong, x.b.stats.impressions))} /> },
-    { id: 'r100', header: 'Completion rate', headerTip: 'Video views at 100% ÷ Impressions.', align: 'right', width: 140, sortValue: x => rate(x.b.stats.v100, x.b.stats.impressions), render: x => <MetricCell value={amFmt.pct(rate(x.b.stats.v100, x.b.stats.impressions))} /> },
-    { id: 'ctr', header: METRICS.ctr.label, headerTip: METRICS.ctr.description, align: 'right', width: 140, sortValue: x => METRICS.ctr.value(x.b), render: x => <MetricCell value={METRICS.ctr.format(METRICS.ctr.value(x.b))} /> },
-    { id: 'conv', header: 'Conversions', align: 'right', width: 120, sortValue: x => x.b.conv, render: x => <MetricCell value={amFmt.int(x.b.conv)} /> },
-    { id: 'cpa', header: 'Cost per conversion', align: 'right', width: 150, sortValue: x => METRICS.cpa.value(x.b), render: x => <MetricCell value={METRICS.cpa.format(METRICS.cpa.value(x.b))} /> },
-    { id: 'roas', header: METRICS.roas.label, align: 'right', width: 200, sortValue: x => METRICS.roas.value(x.b), render: x => <MetricCell value={METRICS.roas.format(METRICS.roas.value(x.b))} /> },
+    { id: 'imps', header: 'Impressions', align: 'right', width: 120, sortValue: x => x.b.stats.impressions, render: x => <MetricCell value={amFmt.int(x.b.stats.impressions)} />, total: rs => <MetricCell value={amFmt.int(sumB(rs).stats.impressions)} /> },
+    { id: 'r2', header: '2-second view rate', headerTip: 'Video views at 2s ÷ Impressions. How often the first seconds stop the scroll.', align: 'right', width: 150, sortValue: x => rate(x.b.stats.videoViewsShort, x.b.stats.impressions), render: x => <MetricCell value={amFmt.pct(rate(x.b.stats.videoViewsShort, x.b.stats.impressions))} />, total: rs => { const t = sumB(rs).stats; return <MetricCell value={amFmt.pct(rate(t.videoViewsShort, t.impressions))} /> } },
+    { id: 'r6', header: '6-second view rate', headerTip: 'Video views at 6s ÷ Impressions.', align: 'right', width: 150, sortValue: x => rate(x.b.stats.videoViewsLong, x.b.stats.impressions), render: x => <MetricCell value={amFmt.pct(rate(x.b.stats.videoViewsLong, x.b.stats.impressions))} />, total: rs => { const t = sumB(rs).stats; return <MetricCell value={amFmt.pct(rate(t.videoViewsLong, t.impressions))} /> } },
+    { id: 'r100', header: 'Completion rate', headerTip: 'Video views at 100% ÷ Impressions.', align: 'right', width: 140, sortValue: x => rate(x.b.stats.v100, x.b.stats.impressions), render: x => <MetricCell value={amFmt.pct(rate(x.b.stats.v100, x.b.stats.impressions))} />, total: rs => { const t = sumB(rs).stats; return <MetricCell value={amFmt.pct(rate(t.v100, t.impressions))} /> } },
+    { id: 'ctr', header: METRICS.ctr.label, headerTip: METRICS.ctr.description, align: 'right', width: 140, sortValue: x => METRICS.ctr.value(x.b), render: x => <MetricCell value={METRICS.ctr.format(METRICS.ctr.value(x.b))} />, total: rs => <MetricCell value={METRICS.ctr.format(METRICS.ctr.value(sumB(rs)))} /> },
+    { id: 'conv', header: 'Conversions', align: 'right', width: 120, sortValue: x => x.b.conv, render: x => <MetricCell value={amFmt.int(x.b.conv)} />, total: rs => <MetricCell value={amFmt.int(sumB(rs).conv)} /> },
+    { id: 'cpa', header: 'Cost per conversion', align: 'right', width: 150, sortValue: x => METRICS.cpa.value(x.b), render: x => <MetricCell value={METRICS.cpa.format(METRICS.cpa.value(x.b))} />, total: rs => <MetricCell value={METRICS.cpa.format(METRICS.cpa.value(sumB(rs)))} /> },
+    { id: 'roas', header: METRICS.roas.label, align: 'right', width: 200, sortValue: x => METRICS.roas.value(x.b), render: x => <MetricCell value={METRICS.roas.format(METRICS.roas.value(x.b))} />, total: rs => <MetricCell value={METRICS.roas.format(METRICS.roas.value(sumB(rs)))} /> },
   ]
 
   const st = sel?.b.stats

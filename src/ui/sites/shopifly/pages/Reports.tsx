@@ -80,11 +80,17 @@ function ReportList({ navigate }: ShopiflyPageProps) {
 interface Table {
   types: ('text' | 'numeric')[]
   headings: string[]
-  rows: (string | number)[][]
+  rows: (string | number | ReactNode)[][]
   totals?: (string | number)[]
   sortable?: boolean[]
   sortIndex?: number
 }
+
+/** Counts in report tables read "15,112" like the admin (sorting parses the commas back out). */
+const cell = (c: string | number | ReactNode) => (typeof c === 'number' ? c.toLocaleString('en-US') : c)
+
+/** Section heading row inside the finance summary table. */
+const section = (label: string): ReactNode[] => [<span key="h" className="sf-fs-section">{label}</span>, '']
 interface Built {
   chart?: { kind: 'line'; metric: MetricKey } | { kind: 'bar'; data: BarDatum[]; format: 'money' | 'number' } | { kind: 'donut'; data: { label: string; value: number }[]; format: 'money0' | 'number'; center: string }
   table: Table
@@ -199,7 +205,11 @@ function build(s: GameState, id: ReportId, range: DateRange, products: StoreProd
           types: ['text', 'numeric', 'numeric', 'numeric', 'numeric', 'numeric'],
           headings: ['Referring channel', 'Sessions', 'Orders', 'Conversion rate', 'Total sales', 'Average order value'],
           rows: rows.map(x => [sourceLabel(x.k), x.s, x.o, pct2(x.s ? x.o / x.s : 0), usd(x.v), usd(x.o ? x.v / x.o : 0)]),
-          totals: ['', agg.sessions, agg.orders, pct2(agg.conversionRate), usd(agg.totalSales), usd(agg.orders ? agg.totalSales / agg.orders : 0)],
+          // channel rows credit each order's total when it was placed: the totals row adds up the same figures
+          totals: (() => {
+            const v = Object.values(agg.salesBySource).reduce<number>((a, x) => a + (x ?? 0), 0)
+            return ['', agg.sessions, agg.orders, pct2(agg.conversionRate), usd(v), usd(agg.orders ? v / agg.orders : 0)]
+          })(),
           sortIndex: 4,
         },
         note: 'Sales are credited to the channel of the session that placed the order (last click). Ad platforms count conversions differently.',
@@ -283,12 +293,12 @@ function build(s: GameState, id: ReportId, range: DateRange, products: StoreProd
         chart: { kind: 'bar', format: 'money', data: rows.slice(0, 8).map(x => ({ label: title(x.k).slice(0, 36), value: Math.round(x.profit * 100) / 100 })) },
         table: {
           types: ['text', 'numeric', 'numeric', 'numeric', 'numeric', 'numeric', 'numeric', 'numeric', 'numeric', 'numeric'],
-          headings: ['Product', 'Units', 'Net sales', 'Product cost', 'Shipping cost', 'Transaction fees', 'Chargebacks', 'Ad spend', 'Profit', 'Margin'],
+          headings: ['Product', 'Units', 'Net sales', 'Product cost', 'Shipping', 'Fees', 'Chargebacks', 'Ad spend', 'Profit', 'Margin'],
           rows: rows.map(x => [title(x.k), x.units, usd(x.net), usd(-x.cogs), usd(-x.ship), usd(-x.fees), usd(-x.cb), usd(-x.ads), usd(x.profit), pct2(x.net ? x.profit / x.net : 0, 1)]),
           totals: ['', t.units, usd(t.net), usd(-t.cogs), usd(-t.ship), usd(-t.fees), usd(-t.cb), usd(-t.ads), usd(t.profit), pct2(t.net ? t.profit / t.net : 0, 1)],
           sortIndex: 8,
         },
-        note: 'Costs come from each order (supplier price, import duty and shipping). Ad spend comes from your connected Fadbook and TikTak ad accounts. App, staff and creative costs are in the Finance summary.',
+        note: 'Covers orders placed in this date range, including refunds issued on them later. Costs come from each order (supplier price, import duty and shipping). Ad spend is what your Fadbook and TikTak ads spent on each product. App, staff and creative costs are in the Finance summary.',
       }
     }
     case 'finance-summary': {
@@ -300,7 +310,7 @@ function build(s: GameState, id: ReportId, range: DateRange, products: StoreProd
           types: ['text', 'numeric'],
           headings: ['', formatRange(range)],
           rows: [
-            ['Sales', ''],
+            section('Sales'),
             line('Gross sales', agg.grossSales),
             line('Discounts', -agg.discounts),
             line('Returns', -agg.returns),
@@ -308,10 +318,10 @@ function build(s: GameState, id: ReportId, range: DateRange, products: StoreProd
             line('Shipping charges', agg.shipping),
             line('Taxes', agg.taxes),
             line('Total sales', agg.totalSales),
-            ['Payments', ''],
+            section('Payments'),
             line('Transaction fees', -p.paymentFees),
             line('Chargebacks (incl. dispute fees)', -p.chargebacks),
-            ['Costs', ''],
+            section('Costs'),
             line('Product costs', -p.cogs),
             line('Shipping costs', -p.shipping),
             line('Fadbook ads', -p.adSpendFadbook),
@@ -324,7 +334,7 @@ function build(s: GameState, id: ReportId, range: DateRange, products: StoreProd
           totals: ['Net profit', usd(profit)],
           sortable: [false, false],
         },
-        note: p.inventory > 0 ? `Inventory purchases of ${usd(p.inventory)} are held as stock and expensed as product cost when units sell.` : undefined,
+        note: `Ad costs are what Fadbook and TikTak billed your card in this period, so they can differ from the spend shown in Ads Manager and Marketing.${p.inventory > 0 ? ` Inventory purchases of ${usd(p.inventory)} are held as stock and expensed as product cost when units sell.` : ''}`,
       }
     }
   }
@@ -400,10 +410,12 @@ function ReportView({ id, navigate }: ShopiflyPageProps & { id: string }) {
             <EmptyState heading="No data for this date range" image="chart" compact>Try a longer date range.</EmptyState>
           ) : (
             <DataTable
+              // a new report starts from its own default sort (not the column index of the last one)
+              key={def.id}
               columnContentTypes={built.table.types}
               headings={built.table.headings}
-              rows={built.table.rows}
-              totals={built.table.totals}
+              rows={built.table.rows.map(r => r.map(cell))}
+              totals={built.table.totals?.map(cell)}
               totalsName={def.id === 'finance-summary' ? 'Net profit' : 'Totals'}
               showTotalsInFooter={def.id === 'finance-summary'}
               sortable={built.table.sortable ?? built.table.types.map((_, i) => i > 0 || def.id !== 'finance-summary')}

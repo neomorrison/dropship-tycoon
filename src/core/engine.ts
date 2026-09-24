@@ -23,7 +23,9 @@ export function useGameLoop() {
       const gs = useGame.getState().state
       const blocked = !gs || uiSt.speed === 0 || uiSt.pauseLocks.length > 0 || (gs.events.modals.length > 0)
       if (!blocked && gs) {
-        const sleeping = gs.player.activity?.kind === 'sleep'
+        // nights fast-forward only in the room view: with the browser open the player is reading,
+        // so time keeps the chosen speed even if autopilot put the character to bed
+        const sleeping = gs.player.activity?.kind === 'sleep' && !uiSt.computerOpen
         const mult = uiSt.speed * (sleeping ? 4 : 1)
         acc += dt * mult
         let ticks = 0
@@ -35,6 +37,13 @@ export function useGameLoop() {
             useGame.getState().act(tickHour)
           } catch (err) {
             console.error('[sim] tick failed', err)
+            acc = 0
+            break
+          }
+          // a tick that raised a decision (or made the shell pause, e.g. late for a shift) stops
+          // time right there, not after the rest of this frame's hours
+          const u = useUI.getState()
+          if (u.speed === 0 || u.pauseLocks.length > 0 || (useGame.getState().state?.events.modals.length ?? 0) > 0) {
             acc = 0
             break
           }

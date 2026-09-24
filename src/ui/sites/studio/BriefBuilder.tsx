@@ -64,9 +64,12 @@ export function BriefBuilder({ productRef, navigate, compact }: { productRef: st
   const products = useMemo(() => briefableProducts(s.store.products), [s.store.products])
   const [submitError, setSubmitError] = useState<string | null>(null)
 
-  // a draft from another save never leaks into this one
+  // a draft from another save never leaks into this one. A draft that isn't bound to a save yet
+  // (first visit, or filled from "Brief a variation" / a creator card) is adopted, not wiped.
   useEffect(() => {
-    if (useBriefDraft.getState().saveId !== s.meta.saveId) useBriefDraft.getState().reset({ saveId: s.meta.saveId })
+    const cur = useBriefDraft.getState().saveId
+    if (cur === null) useBriefDraft.getState().patch({ saveId: s.meta.saveId })
+    else if (cur !== s.meta.saveId) useBriefDraft.getState().reset({ saveId: s.meta.saveId })
   }, [s.meta.saveId])
 
   // deep link: new/<storeProductId | catalogId>

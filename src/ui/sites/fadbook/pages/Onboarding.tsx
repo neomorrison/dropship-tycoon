@@ -18,10 +18,12 @@ export default function Onboarding({ s }: { s: GameState }) {
   const storeName = s.store.name || s.meta.playerName || 'My Store'
   const block = openAccountBlocker(s, 'fadbook', false)
   const rentBlock = openAccountBlocker(s, 'fadbook', true)
+  const [err, setErr] = useState<string | null>(null)
   const create = (rented: boolean) => {
     let id: string | null = null
     act(g => { id = openAdAccount(g, 'fadbook', { rented }) })
     if (id) ui.set({ accountId: id, level: 'campaign', sel: { campaign: [], adset: [], ad: [] } })
+    else setErr(rented ? `The ${amFmt.money(AGENCY_SETUP_FEE.fadbook)} setup fee was declined. Free up cash or card credit, then try again.` : 'The ad account couldn\'t be created. Check your notifications for the reason.')
   }
   const checklist = [
     { done: s.store.created, label: 'A website to send people to', hint: 'Your Shopifly store with an active product page.', action: () => openSite('shopifly', s.store.created ? 'products' : '') },
@@ -35,6 +37,7 @@ export default function Onboarding({ s }: { s: GameState }) {
         <div className="fb-onb-logo" aria-hidden>f</div>
         <h1>Create an ad account</h1>
         <p className="fb-muted">Ad accounts hold your campaigns, payment method and billing history. You'll be the admin of this account.</p>
+        {err && <AmNotice tone="error" onDismiss={() => setErr(null)}>{err}</AmNotice>}
         {block ? (
           <AmNotice tone="error" title="You can't create an ad account right now">{block}</AmNotice>
         ) : (

@@ -110,7 +110,7 @@ export {
 export { importReviews } from './setup'
 
 // ---- apps ----
-export { installApp, uninstallApp } from './setup'
+export { appTrialAvailable, installApp, uninstallApp } from './setup'
 
 // ---- discounts ----
 export { upsertDiscount, deleteDiscount } from './setup'

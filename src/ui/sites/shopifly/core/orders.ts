@@ -77,7 +77,7 @@ export function productTitle(products: StoreProduct[], o: Pick<Order, 'storeProd
 /** Image for a store product: first media item, or the catalog photo. */
 export function productThumb(products: StoreProduct[], storeProductId: string, catalogId: string): string {
   const p = products.find(x => x.id === storeProductId)
-  return p?.media[0]?.src ?? productImage(catalogId)
+  return p?.media[0]?.src || productImage(catalogId)
 }
 
 export const itemsLabel = (qty: number) => `${qty} item${qty === 1 ? '' : 's'}`
@@ -119,6 +119,39 @@ export function unitHash(str: string): number {
     h = Math.imul(h, 16777619)
   }
   return ((h >>> 0) % 100000) / 100000
+}
+
+// ---------------------------------------------------------------------------
+// Addresses (orders only keep city/state; street and ZIP are derived from the email)
+// ---------------------------------------------------------------------------
+const STREETS = ['Maple Ave', 'Oak St', 'Pine St', 'Cedar Ln', 'Elm St', 'Washington Blvd', 'Lakeview Dr', 'Park Ave', 'Sunset Blvd', 'Highland Ave', 'Main St', 'Willow Way', 'Chestnut St', 'Ridge Rd', 'Meadow Ln', 'Hillcrest Dr']
+
+/** Deterministic street line for a customer (orders store only city/state). */
+export function streetFor(email: string): string {
+  const h = unitHash(email)
+  const num = 100 + Math.floor(h * 9800)
+  const street = STREETS[Math.floor(unitHash(`${email}#s`) * STREETS.length)]
+  const apt = unitHash(`${email}#a`) < 0.3 ? `, Apt ${1 + Math.floor(unitHash(`${email}#n`) * 24)}` : ''
+  return `${num} ${street}${apt}`
+}
+
+/** First three ZIP digits by state (ranges), so addresses read like "Austin TX 78704". */
+const ZIP3: Record<string, [number, number]> = {
+  AL: [350, 369], AK: [995, 999], AZ: [850, 865], AR: [716, 729], CA: [900, 961], CO: [800, 816], CT: [60, 69], DE: [197, 199],
+  DC: [200, 205], FL: [320, 349], GA: [300, 319], HI: [967, 968], ID: [832, 838], IL: [600, 629], IN: [460, 479], IA: [500, 528],
+  KS: [660, 679], KY: [400, 427], LA: [700, 714], ME: [39, 49], MD: [206, 219], MA: [10, 27], MI: [480, 499], MN: [550, 567],
+  MS: [386, 397], MO: [630, 658], MT: [590, 599], NE: [680, 693], NV: [889, 898], NH: [30, 38], NJ: [70, 89], NM: [870, 884],
+  NY: [100, 149], NC: [270, 289], ND: [580, 588], OH: [430, 459], OK: [730, 749], OR: [970, 979], PA: [150, 196], RI: [28, 29],
+  SC: [290, 299], SD: [570, 577], TN: [370, 385], TX: [750, 799], UT: [840, 847], VT: [50, 59], VA: [220, 246], WA: [980, 994],
+  WV: [247, 268], WI: [530, 549], WY: [820, 831],
+}
+
+/** Deterministic ZIP code for a customer in a state. */
+export function zipFor(email: string, state: string): string {
+  const [lo, hi] = ZIP3[state] ?? [100, 999]
+  const z3 = lo + Math.floor(unitHash(`${email}#z`) * (hi - lo + 1))
+  const z2 = Math.floor(unitHash(`${email}#zz`) * 100)
+  return `${String(z3).padStart(3, '0')}${String(z2).padStart(2, '0')}`
 }
 
 /** Customer id used in URLs (customers/<id>). */
@@ -173,17 +206,30 @@ export function adSpendByProduct(s: GameState, from: Day, to: Day): Record<strin
   return out
 }
 
-/** Ad spend per platform over [from, to] from the business P&L. */
+/** Daily ad stats are kept this long before the ads module folds them into lifetime totals. */
+const AD_STATS_DAYS = 120
+
+/**
+ * Ad spend per platform over [from, to]: what the ads actually spent each day (the same numbers
+ * as Ads Manager and the attribution / profit reports). The P&L only books ad spend when the
+ * platform bills the card (at thresholds), so it's used only for days older than the ad stats.
+ */
 export function adSpendByPlatform(s: GameState, from: Day, to: Day): { fadbook: number; tiktak: number } {
-  let fadbook = 0
-  let tiktak = 0
-  for (let d = Math.max(0, from); d <= to; d++) {
+  const out = { fadbook: 0, tiktak: 0 }
+  const statsFrom = Math.max(0, dayOf(s.time.hour) - AD_STATS_DAYS + 1)
+  for (const ad of s.ads.ads) {
+    for (let d = Math.max(statsFrom, from); d <= to; d++) {
+      const st = ad.stats[d]
+      if (st) out[ad.platform] += st.spend
+    }
+  }
+  for (let d = Math.max(0, from); d <= Math.min(to, statsFrom - 1); d++) {
     const p = s.finance.pnl[d]
     if (!p) continue
-    fadbook += p.adSpendFadbook
-    tiktak += p.adSpendTiktak
+    out.fadbook += p.adSpendFadbook
+    out.tiktak += p.adSpendTiktak
   }
-  return { fadbook, tiktak }
+  return out
 }
 
 /** Orders placed within [from, to]. Orders are stored in id (= time) order. */

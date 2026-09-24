@@ -1,7 +1,7 @@
 // Dense Ads Manager table shared by Fadbook and TikTak: sticky header and leading
 // columns, checkbox + on/off toggle columns, sortable & resizable headers, row
 // hover actions, breakdown sub-rows and a sticky "Results from N" totals footer.
-import { Fragment, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
+import { Fragment, memo, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
 import { ArrowDown, ArrowUp } from 'lucide-react'
 import { cx } from '../common/utils'
 import { renderIcon, type IconSource } from '../common/icon'
@@ -74,6 +74,12 @@ export interface AmTableProps<T> {
   subRows?: (row: T) => T[] | undefined
   /** key for sub-rows (default parentKey + index) */
   subRowKey?: (row: T, index: number) => string
+  /**
+   * Optional content signature for a sub-row. When given, a sub-row only re-renders when its
+   * signature (or the column layout) changes — long breakdowns (by day over months) stay cheap
+   * while the sim ticks. Must cover everything the column renderers read from the row.
+   */
+  subRowSignature?: (row: T) => string
   /** grayed-out rows (off, deleted) */
   rowMuted?: (row: T) => boolean
   highlightedId?: string
@@ -90,6 +96,14 @@ export interface AmTableProps<T> {
 const SEL_W = 40
 const TOG_W = 64
 const DEFAULT_W = 130
+
+/** Memoized sub-row: re-renders only when `sig` changes (see AmTableProps.subRowSignature). */
+const MemoSubRow = memo(
+  function MemoSubRow({ render }: { sig: string; render: () => ReactNode }) {
+    return <>{render()}</>
+  },
+  (a, b) => a.sig === b.sig,
+)
 
 function cmp(a: unknown, b: unknown): number {
   if (typeof a === 'number' && typeof b === 'number') return a - b
@@ -120,7 +134,7 @@ export function amSortRows<T>(rows: T[], columns: AmColumn<T>[], sort: AmSort | 
  */
 export function AmTable<T>({
   rows, columns, rowKey, theme, selectable = true, selectedIds, onSelectionChange, toggle, sort, defaultSort, onSortChange, totals = true,
-  entityName = { singular: 'item', plural: 'items' }, totalsLabel, totalsSubLabel, onRowClick, subRows, subRowKey, rowMuted, highlightedId,
+  entityName = { singular: 'item', plural: 'items' }, totalsLabel, totalsSubLabel, onRowClick, subRows, subRowKey, subRowSignature, rowMuted, highlightedId,
   maxHeight = 560, dense, loading, emptyState, attachedTop, className,
 }: AmTableProps<T>) {
   const t = useAmTheme(theme)
@@ -243,6 +257,8 @@ export function AmTable<T>({
     })
 
   const colCount = columns.length + (selectable ? 1 : 0) + (toggle ? 1 : 0)
+  // anything that changes how every sub-row is laid out (for memoized breakdown rows)
+  const layoutSig = subRowSignature ? `${selectable ? 1 : 0}${toggle ? 1 : 0}:${columns.map(c => `${c.id}/${colW(c)}/${c.align ?? ''}/${c.sticky ? 1 : 0}`).join(',')}` : ''
   const n = sorted.length
   const noun = n === 1 ? entityName.singular : entityName.plural
   const footLabel = totalsLabel ?? (t === 'tiktak' ? `Total of ${n} ${noun}` : `Results from ${n} ${noun}`)
@@ -361,13 +377,19 @@ export function AmTable<T>({
                       )}
                       {renderCells(row, false)}
                     </tr>
-                    {subs?.map((sr, si) => (
-                      <tr key={subRowKey ? subRowKey(sr, si) : `${id}::${si}`} className="am-subrow">
-                        {selectable && <td className={cx(stickyCls('__sel'))} style={stickyStyle('__sel')} />}
-                        {toggle && <td className={cx(stickyCls('__tog'))} style={stickyStyle('__tog')} />}
-                        {renderCells(sr, true)}
-                      </tr>
-                    ))}
+                    {subs?.map((sr, si) => {
+                      const key = subRowKey ? subRowKey(sr, si) : `${id}::${si}`
+                      const tr = () => (
+                        <tr className="am-subrow">
+                          {selectable && <td className={cx(stickyCls('__sel'))} style={stickyStyle('__sel')} />}
+                          {toggle && <td className={cx(stickyCls('__tog'))} style={stickyStyle('__tog')} />}
+                          {renderCells(sr, true)}
+                        </tr>
+                      )
+                      return subRowSignature
+                        ? <MemoSubRow key={key} sig={`${layoutSig}|${subRowSignature(sr)}`} render={tr} />
+                        : <Fragment key={key}>{tr()}</Fragment>
+                    })}
                   </Fragment>
                 )
               })

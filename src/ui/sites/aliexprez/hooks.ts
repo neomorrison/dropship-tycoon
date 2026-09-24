@@ -58,12 +58,22 @@ export function useListing(id: string): Row | null {
 
 /** catalogId → first Shopifly product id imported from it. */
 export function useImported(): Map<string, string> {
-  const products = useGS(s => s.store.products)
+  // select a primitive key, not the products array: product edits/stats change the array
+  // every tick, and every product card on the page would re-render with it
+  const key = useGS(s => {
+    let k = ''
+    for (const sp of s.store.products) k += `${sp.catalogId}\u0001${sp.id}\u0002`
+    return k
+  })
   return useMemo(() => {
     const m = new Map<string, string>()
-    for (const sp of products) if (!m.has(sp.catalogId)) m.set(sp.catalogId, sp.id)
+    for (const pair of key.split('\u0002')) {
+      if (!pair) continue
+      const [catalogId, id] = pair.split('\u0001')
+      if (!m.has(catalogId)) m.set(catalogId, id)
+    }
     return m
-  }, [products])
+  }, [key])
 }
 
 export function useFavoriteSet(): Set<string> {

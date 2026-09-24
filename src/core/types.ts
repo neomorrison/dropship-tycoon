@@ -653,6 +653,8 @@ export interface InstalledApp { appId: string; installedDay: Day; planIdx: numbe
 export interface Discount {
   id: string
   code: string
+  /** automatic discounts: the free-text title shoppers see in the cart (code keeps a normalized id) */
+  title?: string
   kind: 'percent' | 'fixed' | 'free_shipping' | 'bxgy' | 'quantity_break'
   value: number
   automatic: boolean
@@ -720,6 +722,8 @@ export interface Order {
   cancelled?: boolean
   /** Klavio abandoned-checkout recovery */
   recovered?: boolean
+  /** hour of the latest refund (set by refundOrder; older saves don't have it) */
+  refundedHour?: Hour
 }
 export interface SupportTicket {
   id: string
@@ -837,6 +841,8 @@ export interface StoreState {
   shipping: { freeShipping: boolean; flatRate: number; freeOver: number | null }
   products: StoreProduct[]
   apps: InstalledApp[]
+  /** app ids whose free trial has been used (reinstalling doesn't start a new trial) */
+  appTrialsUsed?: string[]
   discounts: Discount[]
   orders: Order[]
   orderSeq: number
@@ -1093,6 +1099,8 @@ export interface RuleLogEntry {
   entityName: string
   action: AutomatedRule['action']
   detail: string
+  /** the reading that fired the rule, e.g. "Cost per purchase $41.20 > $32.00" */
+  trigger?: string
 }
 export interface AdsState {
   accounts: AdAccount[]
@@ -1290,7 +1298,7 @@ export interface CoachState {
   enabled: boolean
   shown: Record<string, Hour>
   /** tips queued for the coach bubble */
-  queue: { id: string; text: string; hour: Hour; app?: SiteId }[]
+  queue: { id: string; text: string; hour: Hour; app?: SiteId; /** route inside `app` for "Show me" */ path?: string }[]
 }
 export type SiteId =
   | 'shopifly' | 'storefront' | 'fadbook' | 'tiktak' | 'aliexprez' | 'mineo' | 'studio'

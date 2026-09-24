@@ -81,7 +81,12 @@ export default function ProductPage({ id, navigate }: { id: string; navigate: (p
 
       <div className="mi-grid2">
         <Panel title="Active ads · last 30 days"><GlowArea data={adsSeries} unit="ads" /></Panel>
-        <Panel title="Advertisers · last 90 days"><GlowArea data={advertisersHist} color="#3dd5c7" unit="advertisers" /></Panel>
+        <Panel title="Advertisers · last 90 days">
+          <GlowArea
+            data={advertisersHist} color="#3dd5c7" unit="advertisers"
+            emptyText={`Advertiser tracking started recently (${d.advertisers.toLocaleString('en-US')} today). The trend line appears after a few re-crawls, every 2 days.`}
+          />
+        </Panel>
       </div>
 
       <div className="mi-grid3">

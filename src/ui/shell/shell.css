@@ -240,6 +240,10 @@
   gap: 8px;
   padding: 10px 14px 8px;
 }
+/* an open bell dropdown must sit above Coach Kev's bubble (55); toasts step aside while it's open
+   (the bell lists the same notifications, and the stack would cover its lower half) */
+.sh-hud:has(.sh-bell) { z-index: 58; }
+.sh-game:has(.sh-bell) .sh-toasts { visibility: hidden; }
 .sh-hud-group {
   display: flex;
   align-items: center;
@@ -253,9 +257,11 @@
   backdrop-filter: blur(16px) saturate(1.5);
   -webkit-backdrop-filter: blur(16px) saturate(1.5);
 }
-.sh-hud-player { flex: 0 1 290px; min-width: 200px; padding-left: 6px; }
+.sh-hud-player { flex: 0 1 290px; min-width: 150px; padding-left: 6px; container: sh-player / inline-size; }
 .sh-hud-time { flex: none; gap: 10px; }
-.sh-hud-money { flex: 1 1 auto; min-width: 0; gap: 2px; padding: 4px 6px; }
+/* never shrink below its content: numbers must not run into each other (the player card gives way instead) */
+.sh-hud-money { flex: 1 0 auto; min-width: 0; gap: 2px; padding: 4px 6px; }
+.sh-hud-money > * { flex: none; }
 .sh-hud-actions { flex: none; gap: 4px; padding: 6px 8px; position: relative; z-index: 3; /* bell dropdown above the wrapped money row */ }
 
 .sh-portrait {
@@ -277,8 +283,9 @@
 
 .sh-player-info { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 5px; }
 .sh-player-name { display: flex; align-items: baseline; gap: 6px; min-width: 0; font-size: 14.5px; font-weight: 600; line-height: 1.1; }
-.sh-player-name > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sh-player-status { font-size: 11.5px; font-weight: 500; color: var(--sh-ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sh-player-name > span:first-child { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* the status gives way first: the player's name must stay readable */
+.sh-player-status { flex: 0 100 auto; min-width: 0; font-size: 11.5px; font-weight: 500; color: var(--sh-ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sh-player-status.is-bad { color: var(--sh-red); }
 .sh-needs { display: flex; gap: 7px; }
 .sh-need { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; }
@@ -297,6 +304,7 @@
 .sh-clock-day { padding: 1px 6px; border-radius: 6px; background: rgba(42, 34, 51, 0.06); font-size: 10.5px; font-weight: 600; color: var(--sh-ink-2); }
 .sh-clock-time { display: flex; align-items: center; gap: 5px; margin-top: 2px; min-width: 96px; font-size: 21px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; }
 .sh-clock-icon { color: var(--sh-amber); flex: none; }
+.sh-speed-wrap { position: relative; display: flex; align-items: center; }
 .sh-speed { display: flex; gap: 2px; padding: 3px; border-radius: 12px; background: rgba(42, 34, 51, 0.06); }
 .sh-speed-btn {
   display: grid;
@@ -327,10 +335,25 @@
   white-space: nowrap;
   animation: sh-pop 0.3s var(--sh-spring);
 }
+.sh-speed-wrap > .sh-time-chip {
+  /* hangs under the speed buttons like a tab, so it never costs HUD width */
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% - 2px);
+  width: max-content;
+  margin-inline: auto;
+  padding: 1px 7px;
+  border-radius: 6px;
+  font-size: 9.5px;
+  line-height: 13px;
+  letter-spacing: 0.06em;
+  box-shadow: 0 2px 6px -2px rgba(42, 34, 51, 0.25);
+  pointer-events: none;
+}
 .sh-time-chip.is-paused { background: var(--sh-amber-soft); color: #9a5b00; animation: sh-pop 0.3s var(--sh-spring), sh-blink 1.6s ease-in-out 0.3s infinite; }
 .sh-time-chip.is-locked { background: var(--sh-accent-soft); color: var(--sh-accent); }
 .sh-time-chip.is-sleep { background: #e4e9ff; color: #3b4fb8; }
-.sh-time-chip.is-event { max-width: 150px; overflow: hidden; text-overflow: ellipsis; background: #fff0f6; color: #c2185b; text-transform: none; letter-spacing: 0; }
 
 .sh-stat {
   display: flex;
@@ -379,6 +402,7 @@
 .sh-today-value.is-good { color: var(--sh-mint); }
 .sh-today-value.is-bad { color: var(--sh-red); }
 .sh-today-cta { gap: 9px; padding: 6px 12px; text-align: left; border-style: dashed; border-color: rgba(118, 84, 240, 0.4); }
+.sh-today-cta-text { min-width: 0; white-space: nowrap; }
 .sh-today-cta b { display: block; font-size: 13.5px; font-weight: 600; }
 .sh-today-cta small { display: block; font-size: 11.5px; color: var(--sh-accent); }
 .sh-today-bag { font-size: 22px; animation: sh-float 3s ease-in-out infinite; }
@@ -605,6 +629,10 @@
 .sh-work-big { font-size: 15.5px; font-weight: 600; }
 .sh-work-sub { font-family: var(--sh-font-data); font-size: 12.5px; color: var(--sh-ink-2); }
 .sh-work.is-live { border-color: rgba(240, 160, 32, 0.35); background: linear-gradient(180deg, rgba(255, 244, 222, 0.85), var(--sh-glass)); }
+.sh-work.is-late { border-color: rgba(232, 69, 90, 0.4); background: linear-gradient(180deg, rgba(255, 227, 231, 0.9), var(--sh-glass)); }
+.sh-work.is-late .sh-card-kicker { color: var(--sh-red); }
+.sh-work-go { width: 100%; justify-content: center; }
+.sh-work-sub.is-warn { color: #a14a00; }
 .sh-work-stats { display: flex; align-items: center; gap: 14px; margin-top: 8px; font-family: var(--sh-font-data); font-size: 12px; color: var(--sh-ink-3); }
 .sh-work-stats b { color: var(--sh-ink); font-weight: 650; }
 .sh-work-stats b.is-bad { color: var(--sh-red); }
@@ -748,6 +776,37 @@
 .sh-coach-mini:hover { transform: scale(1.06); }
 .sh-coach-mini .sh-coach-face { width: 52px; height: 52px; }
 .sh-coach-mini .sh-badge { top: -2px; right: -2px; background: var(--sh-accent); }
+
+/* Kev inside the activity panel (stacked layouts) */
+.sh-coach-inline { display: flex; align-items: flex-start; gap: 10px; flex: none; animation: sh-bubble 0.4s var(--sh-spring); }
+.sh-coach-inline .sh-coach-face { width: 44px; height: 44px; margin-top: 2px; box-shadow: 0 0 0 2px #fff, 0 6px 14px -6px rgba(60, 30, 80, 0.5); }
+.sh-coach-inline-card {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px 11px;
+  border-radius: 6px 16px 16px 16px;
+  background: var(--sh-glass-strong);
+  border: 1px solid var(--sh-glass-border);
+  box-shadow: var(--sh-shadow-sm);
+}
+.sh-coach-inline-card .sh-coach-text { max-height: none; }
+.sh-coach-inline.is-mini {
+  position: relative;
+  align-items: center;
+  width: 100%;
+  padding: 6px 12px 6px 6px;
+  border: 1px solid var(--sh-glass-border);
+  border-radius: 16px;
+  background: var(--sh-glass);
+  box-shadow: var(--sh-shadow-sm);
+  font: inherit;
+  color: var(--sh-ink-2);
+  text-align: left;
+}
+.sh-coach-inline.is-mini .sh-coach-face { width: 32px; height: 32px; margin: 0; }
+.sh-coach-inline-text { flex: 1; min-width: 0; font-size: 13px; }
+.sh-coach-inline-text b { color: var(--sh-accent); font-weight: 600; }
+.sh-coach-inline.is-mini .sh-badge { position: static; background: var(--sh-accent); }
 
 /* ---------- decision modals ---------- */
 .sh-modal-layer { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 16px; }
@@ -929,17 +988,19 @@
 @keyframes sh-ring { 0% { transform: rotate(0); } 15% { transform: rotate(14deg); } 30% { transform: rotate(-12deg); } 45% { transform: rotate(8deg); } 60% { transform: rotate(-5deg); } 75% { transform: rotate(2deg); } 100% { transform: rotate(0); } }
 
 /* ---------- responsive ---------- */
-@media (max-width: 1360px) {
-  .sh-today-cell.is-roas { display: none; }
-}
-@media (max-width: 1240px) {
+/* HUD budget (one row): time ≈ 290px + money ≈ 530px + actions; the player card takes what's left,
+   so drop the least useful bits first and wrap the money row below 1240px. */
+@media (max-width: 1500px) {
   .sh-hud-btn-label { display: none; }
   .sh-hud-btn { width: 40px; padding: 0; justify-content: center; }
-  .sh-player-status { display: none; }
-  .sh-hud-player { flex-basis: 230px; }
-  .sh-main { grid-template-columns: minmax(0, 1fr) 316px; }
 }
-@media (max-width: 1080px) {
+@media (max-width: 1360px) {
+  .sh-today-cell.is-roas { display: none; }
+  .sh-player-status { display: none; }
+  .sh-hud-icon.sh-hide-md { display: none; }
+}
+@media (max-width: 1240px) {
+  .sh-main { grid-template-columns: minmax(0, 1fr) 316px; }
   .sh-hud { flex-wrap: wrap; }
   .sh-hud-money { order: 3; flex-basis: 100%; }
   .sh-hud-money .sh-today { flex: 1; }
@@ -948,6 +1009,8 @@
   .sh-today-cta { justify-content: center; }
   .sh-hud-actions { margin-left: auto; }
   .sh-hud-player { flex: 1 1 220px; }
+  .sh-player-status { display: inline; }
+  .sh-hud-icon.sh-hide-md { display: grid; }
 }
 @media (max-width: 900px) {
   .sh-main { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(300px, 56vh) auto; overflow-y: auto; overscroll-behavior: contain; }
@@ -956,7 +1019,17 @@
   .sh-report-cols { grid-template-columns: 1fr; }
   .sh-hud-icon.sh-hide-sm { display: none; }
 }
+@media (max-width: 719px) {
+  /* full-screen phone browser: keep toasts clear of its URL bar and bottom toolbar */
+  .sh-game.is-computer-open .sh-toasts { bottom: 104px; }
+}
+@media (max-width: 420px) {
+  .sh-stat-card .sh-stat-value small { display: none; }
+}
 @media (max-width: 560px) {
+  /* the room render is 16:9 with empty margins: size the scene to it so the panel starts sooner */
+  .sh-main { grid-template-rows: clamp(280px, 84vw, 52vh) auto; }
+  .sh-game.is-computer-open .sh-hud-money { display: none; }
   .sh-hud { gap: 6px; padding: 8px 8px 6px; }
   .sh-hud-group { min-height: 46px; border-radius: 15px; padding: 5px 7px; }
   .sh-hud-player { flex: 1 1 0; min-width: 0; order: 0; padding-left: 5px; }
@@ -967,18 +1040,40 @@
   .sh-hud-actions { flex: none; order: 1; margin-left: 0; gap: 0; padding: 4px 5px; }
   .sh-hud-icon, .sh-hud-btn { width: 34px; height: 34px; border-radius: 10px; }
   .sh-hud-time { order: 2; flex: 1 1 100%; justify-content: space-between; }
-  .sh-bell { right: -84px; }
-  .sh-time-chip.is-event { display: none; }
+  .sh-bell { right: -74px; width: calc(100vw - 16px); max-height: calc(100dvh - 80px); }
   .sh-clock-time { font-size: 18px; min-width: 84px; }
   .sh-speed-btn { min-width: 30px; }
   .sh-stat { padding: 4px 6px; }
   .sh-stat-value { font-size: 14.5px; }
-  .sh-today-cell { padding: 1px 7px; }
-  .sh-today-value { font-size: 13px; }
+  .sh-hud-money .sh-today { flex: 1 1 0; min-width: 0; margin-left: 2px; }
+  .sh-today-cell { flex: 1 1 0; min-width: 0; padding: 1px 6px; }
+  .sh-today-cell.is-roas { display: none; }
+  .sh-today-value { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
+  .sh-today .sh-stat-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
   .sh-quick-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .sh-coach { left: 8px; bottom: 8px; }
   .sh-coach-face { width: 48px; height: 48px; }
   .sh-toasts { right: 8px; bottom: 8px; }
+  /* a phone screen fits two toasts; older ones wait in the bell */
+  .sh-toasts .sh-toast:nth-last-child(n + 3) { display: none; }
   .sh-modal-title { font-size: 20px; }
   .sh-modal-main { padding: 16px 16px 14px; }
+  .sh-ov-body { padding: 4px 16px 18px; }
+  .sh-set-row:has(.sh-slider) { flex-wrap: wrap; row-gap: 6px; }
+  .sh-set-row:has(.sh-slider) .sh-set-ctl { width: 100%; }
+  .sh-set-row:has(.sh-slider) .sh-slider { flex: 1; }
+  .sh-set-row:has(.sh-slider) .sh-slider input[type='range'] { flex: 1; width: auto; }
+}
+/* a squeezed player card (tablet widths, long names) drops the status text; the portrait's ring
+   and tooltip still carry it */
+@media (max-width: 380px) {
+  /* small phones (360px): every money figure must stay whole */
+  .sh-hud-money { padding: 4px; }
+  .sh-stat { padding: 4px 5px; }
+  .sh-stat-value { font-size: 13.5px; }
+  .sh-today-cell { padding: 1px 4px; }
+  .sh-today-value { font-size: 12.5px; letter-spacing: -0.02em; }
+}
+@container sh-player (max-width: 230px) {
+  .sh-player-status { display: none; }
 }

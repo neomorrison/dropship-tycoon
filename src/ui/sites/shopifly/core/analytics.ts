@@ -65,6 +65,32 @@ export function aggregate(s: GameState, range: DateRange | null): Agg {
   return withRates(storeRange(s, range))
 }
 
+/**
+ * Like `aggregate`, but the last day of the range only counts up to `hourOfDay` (inclusive), from the
+ * hourly records. Used for comparisons while the current period is still in progress, so "today
+ * so far" is compared with the same hours yesterday instead of all of yesterday. Falls back to
+ * the whole day when that day's hourly records are gone (kept for 72 hours).
+ */
+export function aggregateToHour(s: GameState, range: DateRange | null, hourOfDay: number): Agg {
+  if (!range || range.to < 0) return withRates(emptyStoreDay())
+  const lastStart = hourAt(range.to, 0)
+  if (s.time.hour - lastStart > 72 || hourOfDay >= 23) return aggregate(s, range)
+  const head = range.from <= range.to - 1 ? storeRange(s, { from: range.from, to: range.to - 1 }) : emptyStoreDay()
+  for (let h = 0; h <= hourOfDay; h++) {
+    const x = s.store.analytics.hourly[lastStart + h]
+    if (!x) continue
+    head.sessions += x.sessions
+    head.orders += x.orders
+    head.converted += x.orders
+    head.atc += x.atc
+    head.checkout += x.checkout
+    head.grossSales += x.sales
+    head.netSales += x.sales
+    head.totalSales += x.sales
+  }
+  return withRates(head)
+}
+
 export function metricOf(a: Agg, key: MetricKey): number {
   switch (key) {
     case 'totalSales': return a.totalSales
@@ -170,7 +196,11 @@ export function seriesPoints(s: GameState, key: MetricKey, range: DateRange, cmp
 
 /** Compact numbers for sparklines (one value per bucket, current period only). */
 export function sparkValues(s: GameState, key: MetricKey, range: DateRange): number[] {
-  return seriesPoints(s, key, range, null).map(p => (p.value ?? 0))
+  // buckets after "now" are left off, so a sparkline for today ends at the current hour instead of dropping to zero
+  const pts = seriesPoints(s, key, range, null)
+  let end = pts.length
+  while (end > 1 && pts[end - 1].value === null) end--
+  return pts.slice(0, end).map(p => (p.value ?? 0))
 }
 
 /** Per-day values of a metric for a range (days before 0 are zeros). */
@@ -189,10 +219,10 @@ export function formatMetric(key: MetricKey, v: number): string {
 }
 
 /**
- * All-zero series render as the chart's empty state (the chart otherwise auto-scales a flat
- * zero line to an arbitrary 0–4 axis, e.g. 0–400% for rates).
+ * Chart points as they should be drawn. Like the admin, a period with no sales still draws a flat
+ * line at zero (the chart kit gives all-zero series a sensible axis), and "No data for this date
+ * range" only shows when nothing in the range has happened yet (every bucket is in the future).
  */
 export function zeroToEmpty(points: LineChartPoint[]): LineChartPoint[] {
-  const any = points.some(p => (p.value ?? 0) !== 0 || (p.compare ?? 0) !== 0)
-  return any ? points : points.map(p => ({ ...p, value: null, compare: p.compare === undefined ? undefined : null }))
+  return points
 }

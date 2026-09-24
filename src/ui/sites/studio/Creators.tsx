@@ -8,7 +8,7 @@ import { money } from '../../../core/format'
 import { CREATOR_TIERS } from '../../../data/creators'
 import { findProduct } from '../../../sim/market'
 import { Stars, cx } from '../../kit/common'
-import { useBriefDraft } from './draft'
+import { draftForCurrentSave, useBriefDraft } from './draft'
 import { NICHE_LABEL, firstName } from './helpers'
 import { Badge, EmptyBlock, Portrait, Segmented } from './ui'
 
@@ -24,7 +24,7 @@ export function Creators({ highlightId, navigate, compact }: { highlightId: stri
   const creators = useGS(s => s.creatives.creators)
   const creatives = useGS(s => s.creatives.creatives)
   const staff = useGS(s => s.staff.members)
-  const hour = useGS(s => s.time.hour)
+  const today = useGS(s => dayOf(s.time.hour))
   const lastRefresh = useGS(s => s.creatives.lastCreatorRefreshDay)
   const products = useGS(s => s.store.products)
   const draftProductId = useBriefDraft(d => d.storeProductId)
@@ -38,7 +38,6 @@ export function Creators({ highlightId, navigate, compact }: { highlightId: stri
   const [nicheFilter, setNicheFilter] = useState<'all' | Niche>('all')
   const [sort, setSort] = useState<SortKey>('recommended')
 
-  const today = dayOf(hour)
   const expires = creators[0]?.expiresDay ?? lastRefresh + 7
   const daysLeft = Math.max(0, expires - today)
   const ugcStaff = staff.filter(m => m.role === 'ugc_creator')
@@ -75,6 +74,7 @@ export function Creators({ highlightId, navigate, compact }: { highlightId: stri
   }, [highlightId, list.length])
 
   const brief = (id: string) => {
+    draftForCurrentSave()
     useBriefDraft.getState().patch({ producer: 'ugc', creatorId: id, lastOrderedId: null })
     navigate('new')
   }
@@ -108,7 +108,7 @@ export function Creators({ highlightId, navigate, compact }: { highlightId: stri
           <span className="ch-kicker"><UserCheck size={12} /> Your team</span>
           <div className="ch-team-list">
             {ugcStaff.map(m => (
-              <button key={m.id} type="button" className="ch-team-item" onClick={() => { useBriefDraft.getState().patch({ producer: 'staff', creatorId: m.id, lastOrderedId: null }); navigate('new') }}>
+              <button key={m.id} type="button" className="ch-team-item" onClick={() => { draftForCurrentSave(); useBriefDraft.getState().patch({ producer: 'staff', creatorId: m.id, lastOrderedId: null }); navigate('new') }}>
                 <Portrait id={m.portrait} name={m.name} size={32} />
                 <span><b>{m.name}</b><small>In-house creator · skill {m.skill}/10</small></span>
                 <span className="ch-link-btn">Brief</span>

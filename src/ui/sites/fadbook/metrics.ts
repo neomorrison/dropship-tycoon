@@ -125,13 +125,13 @@ export const METRICS: MetricDef[] = [
   { id: 'purchases', label: 'Purchases', category: 'Conversions', width: 100, description: 'The number of purchase events attributed to your ads (7-day click or 1-day view).', value: r => r.st.purchases, format: int },
   { id: 'cpa', label: 'Cost per purchase', category: 'Conversions', width: 116, description: 'The average cost for each purchase.', value: r => div(r.st.spend, r.st.purchases), format: money },
   { id: 'purchase_value', label: 'Purchases conversion value', category: 'Conversions', width: 130, description: 'The total value of purchases attributed to your ads.', value: r => r.st.purchaseValue, format: money },
-  { id: 'roas', label: 'Purchase ROAS (return on ad spend)', header: 'Purchase ROAS (return on ad spend)', category: 'Conversions', width: 136, description: 'Purchases conversion value ÷ amount spent.', value: r => div(r.st.purchaseValue, r.st.spend), format: v => amFmt.roas(v) },
+  { id: 'roas', label: 'Purchase ROAS (return on ad spend)', header: 'Purchase ROAS (return on ad spend)', category: 'Conversions', width: 136, description: 'Purchases conversion value ÷ amount spent.', value: r => div(r.st.purchaseValue, r.st.spend), format: v => (v ? amFmt.roas(v) : amFmt.dash) },
   { id: 'aov', label: 'Average purchases conversion value', category: 'Conversions', width: 140, description: 'Purchases conversion value ÷ purchases.', value: r => div(r.st.purchaseValue, r.st.purchases), format: money },
   // ---- custom metrics ----
   {
     id: 'hook_rate', label: 'Hook rate', category: 'Custom metrics', custom: true, width: 100,
-    description: 'Custom metric: 3-second video plays ÷ impressions (video ads only). How well the first seconds stop the scroll.',
-    value: r => div(r.st.videoViewsShort, r.vidImps), format: pct,
+    description: 'Custom metric: 3-second video plays ÷ impressions. How well the first seconds stop the scroll. Image ads in the same row add impressions but no plays.',
+    value: r => (r.vidImps ? div(r.st.videoViewsShort, r.st.impressions) : null), format: pct,
   },
   {
     id: 'hold_rate', label: 'Hold rate', category: 'Custom metrics', custom: true, width: 100,

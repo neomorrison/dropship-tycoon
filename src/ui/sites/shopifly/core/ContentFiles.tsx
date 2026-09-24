@@ -3,6 +3,8 @@ import { useMemo, useState } from 'react'
 import type { ShopiflyPageProps } from '../route'
 import type { MediaItem } from '../../../../core/types'
 import { useGS } from '../../../../core/store'
+import { productImage } from '../../../../core/assets'
+import { dayOf } from '../../../../core/time'
 import { EmptyState, IndexFilters, IndexTable, Link, Page, PolarisProvider, Text, Thumbnail, Card, Badge } from '../../../kit/polaris'
 import { shortDate } from './format'
 import { unitHash } from './orders'
@@ -34,8 +36,15 @@ function fmtSize(kb: number) {
   return kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${Math.round(kb)} KB`
 }
 
+/** Creative id behind a media item added from your own creatives ("cr-<id>-<kind>" / "m_cr_<id>"). */
+function creativeIdOf(mediaId: string): string | null {
+  const m = /^cr-(.+)-(?:lifestyle|ugc_photo|video|gif)$/.exec(mediaId) ?? /^m_cr_(.+)$/.exec(mediaId)
+  return m ? m[1] : null
+}
+
 export default function ContentFiles({ navigate }: ShopiflyPageProps) {
   const products = useGS(s => s.store.products)
+  const creatives = useGS(s => s.creatives.creatives)
   const today = useToday()
   const [tab, setTab] = useState(0)
   const [q, setQ] = useState('')
@@ -45,11 +54,15 @@ export default function ContentFiles({ navigate }: ShopiflyPageProps) {
       p.media.forEach((m, i) => {
         const h = unitHash(m.id)
         const sizeKb = m.kind === 'video' ? 4200 + h * 9000 : m.kind === 'gif' ? 1800 + h * 2600 : 140 + h * 520
-        out.push({ key: `${p.id}:${m.id}`, name: fileName(m, i), alt: m.alt, kind: m.kind, src: m.src, day: p.createdDay, sizeKb, productId: p.id, productTitle: p.title })
+        // files from your own creatives were added when the creative was ready, not when the product was imported
+        const cid = creativeIdOf(m.id)
+        const c = cid ? creatives.find(x => x.id === cid) : undefined
+        const day = c ? Math.max(p.createdDay, dayOf(c.readyHour ?? c.orderedHour)) : p.createdDay
+        out.push({ key: `${p.id}:${m.id}`, name: fileName(m, i), alt: m.alt, kind: m.kind, src: m.src || productImage(p.catalogId), day, sizeKb, productId: p.id, productTitle: p.title })
       })
     }
     return out
-  }, [products])
+  }, [products, creatives])
   const tabs = [
     { id: 'all', content: 'All' },
     { id: 'images', content: 'Images' },
@@ -81,6 +94,7 @@ export default function ContentFiles({ navigate }: ShopiflyPageProps) {
               selectable={false}
               resourceName={{ singular: 'file', plural: 'files' }}
               pageSize={50}
+              resetPageKey={`${tab}|${q}`}
               defaultSort={{ columnId: 'date', direction: 'descending' }}
               emptyState={<EmptyState heading="No files found" image="search" compact>Try changing the search term or filter.</EmptyState>}
               onRowClick={r => navigate(`products/${r.productId}`)}
@@ -97,13 +111,17 @@ export default function ContentFiles({ navigate }: ShopiflyPageProps) {
                     </div>
                   ),
                 },
-                { id: 'alt', title: 'Alt text', render: r => (r.alt ? <Text as="span" truncate>{r.alt}</Text> : <Text as="span" tone="subdued">—</Text>) },
-                { id: 'type', title: 'Type', render: r => <Badge>{KIND_LABEL[r.kind]}</Badge> },
-                { id: 'date', title: 'Date added', sortValue: r => r.day, render: r => shortDate(r.day, today) },
-                { id: 'size', title: 'Size', numeric: true, sortValue: r => r.sizeKb, render: r => fmtSize(r.sizeKb) },
                 {
-                  id: 'refs', title: 'References',
-                  render: r => <Link onClick={() => navigate(`products/${r.productId}`)}>{r.productTitle.length > 40 ? `${r.productTitle.slice(0, 40)}…` : r.productTitle}</Link>,
+                  // long supplier alt texts would stretch the table: one ellipsized line, full text on hover
+                  id: 'alt', title: 'Alt text',
+                  render: r => (r.alt ? <div className="sf-files-alt" title={r.alt}>{r.alt}</div> : <Text as="span" tone="subdued">—</Text>),
+                },
+                { id: 'type', title: 'Type', nowrap: true, render: r => <Badge>{KIND_LABEL[r.kind]}</Badge> },
+                { id: 'date', title: 'Date added', nowrap: true, sortValue: r => r.day, render: r => shortDate(r.day, today) },
+                { id: 'size', title: 'Size', numeric: true, nowrap: true, sortValue: r => r.sizeKb, render: r => fmtSize(r.sizeKb) },
+                {
+                  id: 'refs', title: 'References', nowrap: true,
+                  render: r => <Link onClick={() => navigate(`products/${r.productId}`)}>{r.productTitle.length > 32 ? `${r.productTitle.slice(0, 32).trim()}…` : r.productTitle}</Link>,
                 },
               ]}
             />

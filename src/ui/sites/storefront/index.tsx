@@ -1,7 +1,7 @@
 // Storefront site ("Your Store"): the player's live Shopifly store as shoppers see it.
 // Routes: '' home · products/<id> · collections/all · policies/<refund|shipping|privacy|terms|contact>
 // The owner sees a slim preview bar with shortcuts back into the Shopifly admin.
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Eye, LayoutTemplate, Pencil, Store } from 'lucide-react'
 import type { SiteProps } from '../types'
 import { useGS } from '../../../core/store'
@@ -18,6 +18,11 @@ export default function Storefront({ path, navigate }: SiteProps) {
   const [cart, setCart] = useState<CartLine[]>([])
   const [cartOpen, setCartOpen] = useState(path === 'cart')
   const [checkoutNotice, setCheckoutNotice] = useState(false)
+  // a page change (link, deep link from the admin) closes the cart drawer like a real page load
+  useEffect(() => {
+    setCartOpen(path === 'cart')
+    setCheckoutNotice(false)
+  }, [path])
 
   const seg = path.split('/').filter(Boolean)
   const [a, b] = seg
@@ -71,7 +76,7 @@ export default function Storefront({ path, navigate }: SiteProps) {
         <button type="button" onClick={() => openSite('shopifly', product ? `online-store/editor/product/${product.id}` : 'online-store/editor/home')}>
           <LayoutTemplate size={13} /> Customize
         </button>
-        <button type="button" onClick={() => openSite('shopifly', '')}>Shopifly admin</button>
+        <button type="button" className="st-ownerbar-admin" onClick={() => openSite('shopifly', '')}>Shopifly admin</button>
       </span>
     </div>
   )

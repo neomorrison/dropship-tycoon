@@ -38,6 +38,9 @@
 .sh-tod-dusk .sh-stage-tint { background-color: rgba(255, 170, 110, 0.2); }
 .sh-tod-night .sh-stage-tint { background-color: rgba(40, 55, 140, 0.34); }
 .sh-scene.is-out .sh-stage-img, .sh-scene.is-out .sh-fr { filter: saturate(0.6) brightness(0.95) blur(2px); }
+/* away or asleep: the room isn't clickable (the overlay covers it), so don't advertise its hotspots */
+.sh-scene.is-out .sh-hotspot-tag, .sh-scene.is-sleeping .sh-hotspot-tag { opacity: 0 !important; }
+.sh-scene.is-out .sh-hotspot, .sh-scene.is-sleeping .sh-hotspot { animation: none; }
 
 /* ---------- hotspots ---------- */
 .sh-hotspot {
@@ -96,6 +99,9 @@
   animation: sh-bubble-bob 2.6s ease-in-out infinite;
   pointer-events: none;
 }
+.sh-stage.is-compact .sh-hotspot-tag { gap: 4px; padding: 3px 8px; font-size: 11px; }
+.sh-stage.is-compact .sh-hotspot-tag svg { width: 11px; height: 11px; }
+.sh-stage.is-compact .sh-busy-bubble { width: 32px; height: 32px; font-size: 17px; }
 .sh-fries-pop {
   position: absolute;
   font-family: var(--sh-font-game);
@@ -120,13 +126,11 @@
   box-shadow: var(--sh-shadow-lg);
   backdrop-filter: blur(20px) saturate(1.4);
   -webkit-backdrop-filter: blur(20px) saturate(1.4);
-  transform: translate(-50%, -100%);
-  transform-origin: 50% 100%;
   animation: sh-menu-in 0.24s var(--sh-spring);
   font-family: var(--sh-font-game);
   color: var(--sh-ink);
+  overflow-y: auto;
 }
-.sh-menu.is-below { transform: translate(-50%, 0); transform-origin: 50% 0; animation-name: sh-menu-in-below; }
 .sh-menu-head { display: flex; align-items: center; gap: 9px; padding: 4px 6px 8px; }
 .sh-menu-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; background: var(--sh-accent-soft); color: var(--sh-accent); }
 .sh-menu-title { font-size: 15px; font-weight: 600; line-height: 1.15; }
@@ -157,10 +161,51 @@
 .sh-menu-meta { font-family: var(--sh-font-data); font-size: 11.5px; color: var(--sh-ink-3); }
 
 /* ---------- scene chrome ---------- */
-.sh-scene-hint {
+/* top strip: work banner / first-time hint on the left, today's world events on the right */
+.sh-scene-top {
   position: absolute;
-  left: 50%;
-  bottom: 16px;
+  top: 10px;
+  left: 14px;
+  right: 14px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 8px 12px;
+  pointer-events: none;
+}
+.sh-scene-top > * { pointer-events: auto; }
+.sh-events { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 5px; max-width: min(300px, 100%); }
+.sh-event {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 5px 10px 5px 8px;
+  border-radius: 999px;
+  background: rgba(255, 244, 250, 0.92);
+  border: 1px solid rgba(194, 24, 91, 0.18);
+  box-shadow: var(--sh-shadow-sm);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  font-family: var(--sh-font-game);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #a3154d;
+  animation: sh-rise 0.35s var(--sh-ease);
+}
+.sh-event-icon { flex: none; }
+.sh-event-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sh-event-when { flex: none; font-family: var(--sh-font-data); font-size: 11px; font-weight: 550; color: rgba(163, 21, 77, 0.65); }
+.sh-event-more { padding: 2px 9px; border: 0; border-radius: 999px; background: rgba(255, 255, 255, 0.75); box-shadow: var(--sh-shadow-sm); font-family: var(--sh-font-game); font-size: 11.5px; font-weight: 600; color: #a3154d; }
+.sh-event-more:hover { background: #fff; }
+.sh-event-more.is-chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 9px; background: rgba(255, 244, 250, 0.92); border: 1px solid rgba(194, 24, 91, 0.18); }
+/* phones: one small chip; tapping it drops the list over the room */
+.sh-events.is-compact.is-open { position: absolute; top: 0; right: 0; max-width: 100%; }
+.sh-scene.is-dark .sh-event { background: rgba(40, 24, 60, 0.8); border-color: rgba(255, 150, 200, 0.25); color: #ffc2dc; }
+.sh-scene.is-dark .sh-event-when { color: rgba(255, 194, 220, 0.7); }
+.sh-scene-hint {
   padding: 8px 16px;
   border-radius: 999px;
   background: rgba(42, 34, 51, 0.82);
@@ -168,21 +213,18 @@
   font-family: var(--sh-font-game);
   font-size: 13.5px;
   font-weight: 500;
-  white-space: nowrap;
-  transform: translateX(-50%);
+  text-align: center;
   box-shadow: 0 10px 24px -10px rgba(0, 0, 0, 0.5);
   animation: sh-hint-in 0.6s var(--sh-spring) 0.6s both;
-  pointer-events: none;
+  pointer-events: none !important;
 }
 .sh-work-banner {
-  position: absolute;
-  top: 10px;
-  left: 14px;
-  z-index: 5;
+  position: relative;
+  margin-right: auto;
   display: flex;
   align-items: center;
   gap: 10px;
-  width: min(340px, calc(100% - 28px));
+  width: min(340px, 100%);
   padding: 10px 12px;
   border-radius: 16px;
   background: rgba(255, 250, 235, 0.9);
@@ -228,6 +270,7 @@
 .sh-sleep .sh-overlay-sub { color: rgba(255, 255, 255, 0.72); }
 .sh-sleep .sh-btn-ghost { background: rgba(255, 255, 255, 0.12); border-color: rgba(255, 255, 255, 0.25); color: #fff; }
 .sh-sleep .sh-btn-ghost:hover { background: rgba(255, 255, 255, 0.22); }
+.sh-sleep-late { padding: 8px 12px; border-radius: 12px; background: rgba(255, 196, 120, 0.16); border: 1px solid rgba(255, 196, 120, 0.4); color: #ffe3b8; font-family: var(--sh-font-data); font-size: 12.5px; line-height: 1.4; }
 .sh-overlay-title { font-size: 20px; font-weight: 600; }
 .sh-overlay-sub { font-family: var(--sh-font-data); font-size: 13px; line-height: 1.45; color: var(--sh-ink-2); }
 .sh-out-emoji { font-size: 44px; animation: sh-bob 2.4s ease-in-out infinite; }
@@ -384,17 +427,23 @@
   0%, 100% { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85), 0 0 0 4px rgba(118, 84, 240, 0.25); }
   50% { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.95), 0 0 0 9px rgba(118, 84, 240, 0); }
 }
-@keyframes sh-menu-in { from { opacity: 0; transform: translate(-50%, calc(-100% + 8px)) scale(0.94); } to { opacity: 1; transform: translate(-50%, -100%) scale(1); } }
-@keyframes sh-menu-in-below { from { opacity: 0; transform: translate(-50%, -8px) scale(0.94); } to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
+@keyframes sh-menu-in { from { opacity: 0; transform: scale(0.94); } to { opacity: 1; transform: none; } }
 @keyframes sh-bubble-bob { 0%, 100% { transform: translate(-50%, calc(-100% - 10px)); } 50% { transform: translate(-50%, calc(-100% - 16px)); } }
 @keyframes sh-fries { 0% { opacity: 0; transform: translate(-50%, 0) scale(0.6); } 20% { opacity: 1; transform: translate(-50%, -10px) scale(1.1); } 100% { opacity: 0; transform: translate(-50%, -60px) scale(1); } }
-@keyframes sh-hint-in { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes sh-hint-in { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: none; } }
 @keyframes sh-zzz { 0% { opacity: 0; transform: translate(0, 10px) rotate(-8deg); } 30% { opacity: 1; } 100% { opacity: 0; transform: translate(26px, -50px) rotate(10deg); } }
 @keyframes sh-twinkle { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 @keyframes sh-screen { from { background-position: 0 0; } to { background-position: 0 100%; } }
 
 @media (max-width: 900px) {
   .sh-scene { grid-row: 1; }
-  .sh-scene-hint { font-size: 12.5px; white-space: normal; text-align: center; max-width: calc(100% - 32px); }
+  .sh-scene-hint { font-size: 12.5px; max-width: 100%; }
   .sh-menu { width: 244px; }
+}
+@media (max-width: 560px) {
+  .sh-scene-top { top: 8px; left: 8px; right: 8px; }
+  .sh-work-banner { width: auto; max-width: calc(100% - 96px); gap: 8px; padding: 6px 10px; border-radius: 13px; }
+  .sh-work-emoji { font-size: 20px; }
+  .sh-work-text b { font-size: 13.5px; }
+  .sh-work-text span { font-size: 11px; }
 }

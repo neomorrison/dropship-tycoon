@@ -70,7 +70,7 @@
   transition: background 120ms, border-color 120ms;
 }
 .sf-search:hover { background: #3a3a3a; }
-.sf-search-focused { background: #fff; border-color: #fff; color: #616161; box-shadow: 0 0 0 2px #4f97ff; }
+.sf-search-focused, .sf-search-focused:hover { background: #fff; border-color: #fff; color: #616161; box-shadow: 0 0 0 2px #4f97ff; }
 .sf-search-icon { flex: none; }
 .sf-search-input {
   flex: 1; min-width: 0; height: 100%;
@@ -273,6 +273,8 @@
 .sf-tile-button { cursor: pointer; }
 .sf-tile-button:hover { background: #f7f7f7; }
 .sf-tile-active, .sf-tile-active:hover { background: #f1f1f1; }
+/* one-line metric titles (the full name is in the hover definition), so values in a row line up */
+.sf-tile .sf-metric-title { display: block; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-bottom: 3px; margin-bottom: -3px; }
 .sf-tile-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .sf-tile-value { font-size: 20px; line-height: 28px; font-weight: 700; letter-spacing: -0.2px; font-variant-numeric: tabular-nums; }
 .sf-tile-dash { color: #8a8a8a; }
@@ -593,6 +595,13 @@
 .sf-composer-text:focus { outline: 0; border-color: #005bd3; box-shadow: 0 0 0 1px #005bd3; }
 .sf-composer-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .sf-inbox-side { border-left: 1px solid #ebebeb; background: #fff; padding: 16px; overflow-y: auto; }
+/* one column (phone / narrow window): the page scrolls as a whole instead of three fixed-height panes,
+   so the message, the order card and the composer all get their natural height */
+.sf-main > .sf-inbox-app.is-narrow { height: auto; min-height: 100%; }
+.sf-inbox.is-narrow { height: auto; min-height: 100%; }
+.sf-inbox.is-narrow .sf-inbox-body { flex: 1 0 auto; }
+.sf-inbox.is-narrow .sf-inbox-items, .sf-inbox.is-narrow .sf-thread-body { flex: none; overflow: visible; }
+.sf-inbox.is-narrow .sf-thread-body { flex: 1 0 auto; }
 .sf-side-row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
 .sf-side-row span:first-child { color: #616161; }
 @container (max-width: 1100px) { .sf-inbox-body:not(.sf-inbox-narrow) { grid-template-columns: 300px minmax(0, 1fr); } .sf-inbox-side { display: none; } }
@@ -675,3 +684,13 @@
 .sf-tcard-actions { display: flex; align-items: center; gap: 8px; }
 .sf-analytics-top-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 @container (max-width: 560px) { .sf-analytics-top-3 { grid-template-columns: 1fr; } }
+
+/* Content → Files */
+.sf-files-alt { max-width: 320px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* finance summary report: section rows */
+.sf-fs-section { display: block; padding-top: 4px; font-weight: 650; color: #303030; }
+/* inbox: long emails wrap instead of running under the due badge; Send never gets squeezed */
+.sf-thread-who { overflow-wrap: anywhere; }
+.sf-composer-foot > .p-btn { flex: none; }
+/* no conversation selected: the empty state takes the thread + customer columns */
+.sf-inbox-body:not(.sf-inbox-narrow) > .sf-inbox-thread-empty { grid-column: 2 / -1; }

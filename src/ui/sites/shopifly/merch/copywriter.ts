@@ -98,31 +98,57 @@ const HOOKS: Record<Niche, string[]> = {
   ],
 }
 
-const BULLET_TEMPLATES = [
-  '{Kw}: get it done in seconds, not minutes, with no hassle.',
-  '{Kw}: simple enough to use every day, so you actually will.',
-  '{Kw}: designed to save you time, money and stress.',
-  '{Kw}: gentle, safe and easy on everything it touches.',
-  '{Kw}: compact and lightweight, so you can take it anywhere.',
-  '{Kw}: built to last, so you never have to buy another one.',
-  '{Kw}: you\'ll notice the difference from the very first use.',
-  '{Kw}: quick to clean and ready to go again whenever you are.',
+/** Bullet benefit lines by what the selling point is about, so "Soothing heat" never reads "get it done in seconds". */
+const BULLET_THEMES: [RegExp, string[]][] = [
+  [/heat|warm|sooth|relax|comfort|calm|massag|relief|cozy|unwind|sleep/i, ['{Kw}: melts away tension so you can finally unwind.', '{Kw}: a calm, comfortable moment whenever you need one.']],
+  [/cordless|portable|compact|lightweight|travel|wireless|foldable|anywhere|on the go|pocket/i, ['{Kw}: compact and lightweight, so you can take it anywhere.', '{Kw}: no cords and no clutter, so you can use it wherever you are.']],
+  [/recharg|battery|usb|charge/i, ['{Kw}: charge it up and use it again and again, no batteries to buy.']],
+  [/fast|quick|instant|second|minute|swipe|rapid/i, ['{Kw}: get it done in seconds, not minutes, with no hassle.']],
+  [/stain|grout|spotless|dust|hair|fur|lint|dirt|grime|mess/i, ['{Kw}: spotless results without the elbow grease.', '{Kw}: lifts it away in a few easy passes.']],
+  [/clean|wash|rinse|hygien/i, ['{Kw}: quick to clean and ready to go again whenever you are.']],
+  [/safe|gentle|soft|skin|sensitive|non-toxic|bpa|kid|baby/i, ['{Kw}: gentle, safe and easy on everything it touches.']],
+  [/durable|reusable|last|sturdy|refill|eco|save money|steel/i, ['{Kw}: built to last, so you never have to buy another one.', '{Kw}: designed to save you time, money and stress.']],
+  [/gift|present|stocking/i, ['{Kw}: an easy win for birthdays, holidays or a thank-you.']],
+  [/easy|simple|effortless|no tools|hands-free|no bending|no scrubbing|one[- ]touch/i, ['{Kw}: simple enough to use every day, so you actually will.', '{Kw}: let it do the hard work while you take it easy.']],
 ]
+const BULLET_GENERIC = [
+  '{Kw}: you\'ll notice the difference from the very first use.',
+  '{Kw}: designed to save you time, money and stress.',
+  '{Kw}: simple enough to use every day, so you actually will.',
+  '{Kw}: the little upgrade you\'ll wonder how you lived without.',
+]
+function bulletTemplate(kw: string, used: Set<string>, r: () => number): string {
+  const themed = BULLET_THEMES.filter(([re]) => re.test(kw)).flatMap(([, ts]) => ts).filter(t => !used.has(t))
+  const pool = themed.length ? themed : BULLET_GENERIC.filter(t => !used.has(t))
+  const t = pool.length ? pick(r, pool) : pick(r, BULLET_GENERIC)
+  used.add(t)
+  return t
+}
 
-type Topic = 'shipping' | 'works' | 'safety' | 'fit' | 'returns' | 'clean' | 'battery' | 'noise' | 'quality' | 'value' | 'ease' | 'general'
+type Topic = 'shipping' | 'works' | 'safety' | 'fit' | 'returns' | 'warranty' | 'clean' | 'battery' | 'noise' | 'quality' | 'value' | 'ease' | 'intensity' | 'water' | 'parts' | 'age' | 'bright' | 'hold' | 'general'
 function topicOf(q: string): Topic {
   const t = q.toLowerCase()
   if (/ship|deliver|arriv|how long until|when will/.test(t)) return 'shipping'
   if (/refund|return|money back|guarantee|don't like|do not like/.test(t)) return 'returns'
+  if (/warranty|stops? working|breaks? down/.test(t)) return 'warranty'
+  if (/waterproof|water ?resistant|in the shower|get wet/.test(t)) return 'water'
+  if (/replacement|spare|refills?\b|extra (heads?|pads?|brush|filters?|parts)|buy more|get more/.test(t)) return 'parts'
+  if (/what age|age is it|how old|years? old/.test(t)) return 'age'
+  if (/bright|lumens?|daylight/.test(t)) return 'bright'
+  if (/batter(y|ies)|charg/.test(t)) return 'battery'
+  if (/\bhold\b|fall out|falls out|come loose|slip|move when|stay (on|in|put)/.test(t)) return 'hold'
+  if (/too (strong|weak|hot|intense|rough|soft)|(strong|powerful|tough) enough|how (hot|strong|powerful)|intensity|pressure|temperature|settings?\b|speeds?\b/.test(t)) return 'intensity'
   if (/safe|damage|scratch|hurt|toxic|burn|irritat|sensitive|harm|pain/.test(t)) return 'safety'
   if (/size|fit|big|small|dimension|compatible|measure|tall|large/.test(t)) return 'fit'
   if (/clean|wash|empty|dishwasher|hygien|refill/.test(t)) return 'clean'
-  if (/battery|charge|charging|cordless|power|last on/.test(t)) return 'battery'
+  if (/batter(y|ies)|charge|charging|cordless|power|last on/.test(t)) return 'battery'
   if (/loud|noise|noisy|quiet/.test(t)) return 'noise'
   if (/quality|break|durable|flimsy|cheap|last\b|sturdy/.test(t)) return 'quality'
   if (/price|worth|expensive|better than|compared|vs\.?|instead/.test(t)) return 'value'
+  // "Can I use it on my lower back?" / "Does it work on carpet?" ask whether it works there, not how hard it is
+  if (/\b(use|work)s?( it)? (on|for|with)\b/.test(t)) return 'works'
   if (/install|setup|set up|assemble|hard|difficult|how do i|how to|use it/.test(t)) return 'ease'
-  if (/work|effective|result|legit|scam|really/.test(t)) return 'works'
+  if (/work|effective|result|legit|scam|really|actually|\breal\b|pick up|kill|get rid/.test(t)) return 'works'
   return 'general'
 }
 
@@ -130,14 +156,38 @@ function answerFor(topic: Topic, q: string, def: ProductDef, name: string, win: 
   const spec = (k: RegExp) => Object.entries(def.specs).find(([key]) => k.test(key))?.[1]
   const size = spec(/size|dimension/i)
   const material = spec(/material/i)
-  const battery = spec(/battery|capacity|charg/i)
+  const capacity = spec(/capacity/i)
+  const battery = spec(/battery|charg/i) ?? (capacity && /mah/i.test(capacity) ? capacity : undefined)
   const shipWin = win ? `${win[0]}–${win[1]} days` : 'about two to three weeks'
   const noun = name.toLowerCase()
+  const yesNo = /^(is|are|can|do|does|will|would|should)\b/i.test(q.trim())
   switch (topic) {
     case 'shipping':
       return `Every order ships${freeShip ? ' free' : ''} with tracking and usually arrives in ${shipWin}. You'll get your tracking link by email as soon as it's on the way.`
     case 'returns':
-      return 'Yes. You\'re covered by our 30-day money-back guarantee. If you\'re not happy, email us and we\'ll make it right with a refund or a replacement.'
+      return `${yesNo ? 'Yes. ' : ''}You're covered by our 30-day money-back guarantee. If you're not happy, email us and we'll make it right with a refund or a replacement.`
+    case 'warranty':
+      return 'You\'re covered by our 30-day money-back guarantee. If it stops working, email us and we\'ll make it right with a replacement or a refund.'
+    case 'water': {
+      const rating = spec(/waterproof|water|ip\s?x?\d/i)
+      return rating
+        ? `It's rated ${rating}, so splashes and rinsing are no problem. Keep the charging port closed and dry when you charge it.`
+        : 'It handles everyday splashes. Keep the charging port dry, and email us before you order if you plan to submerge it.'
+    }
+    case 'age': {
+      const age = spec(/age/i)
+      return age
+        ? `It's made for ${age.replace(/\.$/, '')}. Always follow the safety notes in the box, and keep small parts away from younger children.`
+        : 'Check the age guidance on the box, and always supervise younger children. Email us before you order if you\'re unsure and we\'ll help.'
+    }
+    case 'bright': {
+      const b = spec(/bright|lumen|lux/i)
+      return `${b ? `Brightness: ${b.replace(/\.$/, '')}. ` : ''}It's bright enough for everyday use at home. Not sure it suits your space? Try it for 30 days, and if it doesn't, send it back for a refund.`
+    }
+    case 'hold':
+      return `It's built to stay put${material ? ` (${material})` : ''}. Set it up as shown in the instructions and it holds firmly in everyday use. If it doesn't, our 30-day money-back guarantee has you covered.`
+    case 'parts':
+      return 'Yes. Email our support team and we\'ll send you replacements, so one purchase keeps working for years.'
     case 'safety':
       return `The ${noun} is designed to be gentle and safe for everyday use${material ? ` (${material})` : ''}. Follow the included instructions and it won't damage what it touches. If anything isn't right, our guarantee has you covered.`
     case 'fit':
@@ -146,10 +196,32 @@ function answerFor(topic: Topic, q: string, def: ProductDef, name: string, win: 
         : 'It\'s designed to fit most everyday uses. Not sure? Email us a quick question before you order, and returns are easy within 30 days.'
     case 'clean':
       return 'Cleaning takes seconds: a quick rinse or wipe and it\'s ready to use again. No refills or special supplies needed.'
-    case 'battery':
-      return battery
-        ? `It's rechargeable (${battery}) and one charge covers many uses. A USB cable is included.`
-        : 'It\'s built for everyday use and easy to power up. Everything you need to get started is in the box.'
+    case 'battery': {
+      // only promise what the spec sheet says (some products need batteries that aren't in the box)
+      if (battery) {
+        const usb = /usb/i.test(`${battery} ${spec(/charg/i) ?? ''}`)
+        return `It's rechargeable (${battery.replace(/\.$/, '')}), and one charge covers many uses. ${usb ? 'It charges over USB.' : 'The charger is in the box.'}`
+      }
+      const power = spec(/power/i)
+      if (power && /not included/i.test(power)) {
+        const what = /power bank/i.test(power) ? 'A power bank isn\'t included, so use one you already have' : 'Batteries aren\'t included, so grab a pack when you order'
+        return `It runs on ${power.replace(/\s*\(not included\)/i, '')}. ${what}.`
+      }
+      if (power && /no battery/i.test(power)) return 'No batteries or charging needed: it works by hand, every time.'
+      if (power && /\bA{2,3}\b|batter/i.test(power)) return `It runs on ${power.replace(/\.$/, '')} batteries, easy to find and cheap to replace.`
+      if (power) return `Power: ${power.replace(/\.$/, '')}. No batteries to buy or replace.`
+      return 'Everything it needs to run is listed in the specs. Email us before you order if you have any questions and we\'ll answer within 24 hours.'
+    }
+    case 'intensity': {
+      if (/strong enough|powerful enough|enough power|tough enough/i.test(q)) {
+        const entry = Object.entries(def.specs).find(([key]) => /speed|rpm|power|suction|motor|mode|pressure/i.test(key))
+        return `Yes.${entry ? ` ${entry[0]}: ${entry[1].replace(/\.$/, '')}.` : ''} Use the highest setting for tough jobs and let it do the work.`
+      }
+      // "too hot?" is answered with the heat spec, "too strong?" with the modes/speeds
+      const heatQ = /hot|heat|warm|temperature|burn/i.test(q)
+      const modes = heatQ ? spec(/heat|temp/i) : spec(/mode|speed|setting|level|intensity|pressure/i)
+      return `You're in control${modes ? `: ${modes.replace(/\.$/, '')}` : ' with adjustable settings'}. Start on the lowest setting and work up until it feels right for you.`
+    }
     case 'noise':
       return 'It\'s designed to run quietly, so you can use it any time without disturbing anyone.'
     case 'quality':
@@ -161,7 +233,7 @@ function answerFor(topic: Topic, q: string, def: ProductDef, name: string, win: 
     case 'works':
       return `Yes. The ${noun} was designed for exactly this. Give it a real try, and if it doesn't work for you, you get your money back.`
     default:
-      return `Great question. The ${noun} is designed to make this simple for you. If you have any other questions, our support team replies within 24 hours.`
+      return `Great question. Send us a quick message before you order and we'll answer within 24 hours. And if the ${noun} isn't right for you, our 30-day money-back guarantee has you covered.`
   }
 }
 
@@ -208,10 +280,10 @@ export function copywriterRewrite(def: ProductDef, opts: { quality: number; revi
   // ---- description ----
   const hook = pick(r, HOOKS[def.niche] ?? HOOKS.home).replace('{name}', name)
   const nBullets = q >= 0.85 ? 5 : q >= 0.7 ? 4 : 3
-  const templates = shuffle(r, BULLET_TEMPLATES)
+  const usedTemplates = new Set<string>()
   const bulletKws = [...phrases, ...adjectives, ...kwOrder.filter(k => /[\s-]/.test(k) && !phrases.includes(k))].filter((k, i, a) => a.indexOf(k) === i)
-  const bullets = bulletKws.slice(0, nBullets).map((k, i) => {
-    const t = templates[i % templates.length]
+  const bullets = bulletKws.slice(0, nBullets).map(k => {
+    const t = bulletTemplate(k, usedTemplates, r)
     const [head, ...rest] = t.replace('{Kw}', cap(k)).split(': ')
     return `<li><strong>${esc(head)}:</strong> ${esc(rest.join(': '))}</li>`
   })

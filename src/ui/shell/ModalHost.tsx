@@ -37,7 +37,7 @@ function DecisionModal({ modal, queued }: { modal: GameModal; queued: number }) 
   const firstBtn = useRef<HTMLButtonElement>(null)
   const img = modalImage(modal.image)
   useEffect(() => {
-    // focus the first choice for keyboard users (Enter/Space activates it)
+    // focus the safe choice for keyboard users (Enter activates it); nothing when every choice is destructive
     const t = window.setTimeout(() => firstBtn.current?.focus({ preventScroll: true }), 260)
     return () => window.clearTimeout(t)
   }, [])
@@ -54,6 +54,10 @@ function DecisionModal({ modal, queued }: { modal: GameModal; queued: number }) 
   }
 
   const choices = modal.choices.length ? modal.choices : [{ id: 'ok', label: 'OK', tone: 'primary' as const }]
+  // keyboard focus lands on the recommended choice, never on a destructive one (Enter must be safe)
+  let focusIdx = choices.findIndex(c => c.tone === 'primary')
+  if (focusIdx < 0) focusIdx = choices.findIndex(c => c.tone !== 'critical')
+  if (focusIdx < 0) focusIdx = -1
   return (
     <div className="sh-modal-layer" role="presentation">
       <div className="sh-modal-backdrop" />
@@ -80,7 +84,7 @@ function DecisionModal({ modal, queued }: { modal: GameModal; queued: number }) 
             {choices.map((c, i) => (
               <button
                 key={c.id}
-                ref={i === 0 ? firstBtn : undefined}
+                ref={i === focusIdx ? firstBtn : undefined}
                 type="button"
                 className={clsx('sh-choice', `is-${c.tone ?? 'default'}`, chosen === c.id && 'is-chosen')}
                 disabled={!!chosen}

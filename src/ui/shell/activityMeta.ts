@@ -50,7 +50,7 @@ export const ACTIVITY_META: Record<ActivityKind, ActivityMeta> = {
   },
   appeal_ad_account: {
     emoji: '📝', label: 'Appeal ad account', minutes: 30, cost: 0, group: 'business', spot: 'computer',
-    app: { site: 'fadbook', path: '', cta: 'Open Account quality' }, doing: 'Writing a very polite appeal.',
+    app: { site: 'fadbook', path: 'account_quality', cta: 'Open Account quality' }, doing: 'Writing a very polite appeal.',
   },
   post_organic: {
     emoji: '📲', label: 'Post on TikTak', minutes: 60, cost: 0, group: 'business', spot: 'computer',

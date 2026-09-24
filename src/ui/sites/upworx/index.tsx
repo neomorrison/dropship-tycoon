@@ -321,7 +321,7 @@ function ProfilePage({ s, c, navigate, setFlash }: { s: GameState; c: StaffCandi
 function TeamPage({ s, navigate, setFlash }: { s: GameState; navigate: (p: string) => void; setFlash: (f: Flash | null) => void }) {
   const members = s.staff.members
   const payroll = safe(() => weeklyPayroll(s), 0)
-  const avgMorale = members.length ? members.reduce((a, m) => a + m.morale, 0) / members.length : 0
+  const avgMorale = members.length ? Math.round(members.reduce((a, m) => a + m.morale, 0) / members.length) : 0
   const [fire, setFire] = useState<StaffMember | null>(null)
   const today = todayOf(s)
   const doFire = () => {
@@ -341,7 +341,7 @@ function TeamPage({ s, navigate, setFlash }: { s: GameState; navigate: (p: strin
         <div><span>Team members</span><b>{members.length} / {STAFF_RULES.maxTeam}</b></div>
         <div><span>Weekly payroll</span><b>{usd(payroll)}</b><small>incl. {Math.round(UPWORX_FEE_PCT * 100)}% fee</small></div>
         <div><span>Monthly equivalent</span><b>{usd(payroll * 52 / 12, false)}</b></div>
-        <div><span>Average morale</span><b className={moraleInfo(avgMorale).cls}>{members.length ? `${Math.round(avgMorale)} · ${moraleInfo(avgMorale).label}` : '—'}</b></div>
+        <div><span>Average morale</span><b className={members.length ? moraleInfo(avgMorale).cls : ''}>{members.length ? `${avgMorale} · ${moraleInfo(avgMorale).label}` : '—'}</b></div>
       </div>
       {members.length === 0 ? (
         <div className="uw-empty is-card">
@@ -376,7 +376,7 @@ function TeamPage({ s, navigate, setFlash }: { s: GameState; navigate: (p: strin
 
 function MemberCard({ s, m, today, onFire, setFlash }: { s: GameState; m: StaffMember; today: number; onFire: () => void; setFlash: (f: Flash | null) => void }) {
   const def = STAFF_ROLES[m.role]
-  const mi = moraleInfo(m.morale)
+  const mi = moraleInfo(Math.round(m.morale))
   const [draft, setDraft] = useState<Record<string, string | number | boolean>>(() => ({ ...def.defaults, ...(m.config ?? {}) }))
   useEffect(() => setDraft({ ...def.defaults, ...(m.config ?? {}) }), [m.config, def.defaults])
   const current = { ...def.defaults, ...(m.config ?? {}) }
@@ -519,7 +519,7 @@ function ConfigField({ s, f, value, onChange }: { s: GameState; f: StaffConfigFi
         <small>{f.help}{sel && !has(sel) ? ' ⚠ No sample or stock for this product yet — they can’t film it.' : ''}</small>
       </span>
       <select value={sel} onChange={e => onChange(e.target.value)}>
-        <option value="">Auto (best seller with a sample)</option>
+        <option value="">Auto (best seller)</option>
         {products.map(p => <option key={p.id} value={p.catalogId}>{p.title.slice(0, 48)}{has(p.catalogId) ? '' : ' (no sample)'}</option>)}
       </select>
     </label>

@@ -2,12 +2,12 @@
 import { useMemo } from 'react'
 import { ArrowDownLeft, ArrowUpRight, CreditCard, Landmark, PiggyBank, Sparkles } from 'lucide-react'
 import type { GameState } from '../../../core/types'
-import { formatDate } from '../../../core/time'
+import { formatDate, yearOf } from '../../../core/time'
 import { inventoryValue, netWorth } from '../../../core/money'
-import { capitalOffer, creditIncreaseEligibility } from '../../../sim/finance'
+import { capitalOffer, creditIncreaseEligibility, nextTaxDue } from '../../../sim/finance'
 import { acctName, alertsFor, cardInfo, cashFlow, taxInfo } from './bankData'
 import { Amount, Btn, KV, Meter, Notice, Panel } from './ui'
-import { relDay, safe, simRead, todayOf, usd } from './lifeCommon'
+import { pct1, relDay, safe, simRead, todayOf, usd } from './lifeCommon'
 
 export function Overview({ s, navigate, greet }: { s: GameState; navigate: (p: string) => void; greet: string }) {
   const today = todayOf(s)
@@ -15,6 +15,9 @@ export function Overview({ s, navigate, greet }: { s: GameState; navigate: (p: s
   const alerts = alertsFor(s)
   const flow = useMemo(() => cashFlow(s, 14), [s])
   const t = taxInfo(s)
+  // in January the next payment (Q4) is for last year's profit
+  const taxYear = safe(() => nextTaxDue(today).year, yearOf(today))
+  const priorTaxYear = taxYear < yearOf(today)
   const offer = safe(() => capitalOffer(s), null)
   const increase = simRead(s, st => creditIncreaseEligibility(st, today), { ok: false as boolean, reason: '' as string | undefined })
   const nw = safe(() => netWorth(s), s.finance.cash - s.finance.card.balance)
@@ -73,9 +76,17 @@ export function Overview({ s, navigate, greet }: { s: GameState; navigate: (p: s
               <div className="bk-acct-side">
                 {c.dueDay !== null && c.statementBalance > 0 ? (
                   <>
-                    <KV label="Next payment due" value={formatDate(c.dueDay, 'md')} sub={relDay(c.dueDay, today)} />
-                    <KV label="Minimum payment" value={<Amount n={c.minRemaining} />} />
-                    <KV label="Statement balance" value={<Amount n={c.statementBalance} />} />
+                    <KV
+                      label={c.fullRemaining > 0 ? 'Next payment due' : 'Payment due date'}
+                      value={formatDate(c.dueDay, 'md')}
+                      sub={c.fullRemaining > 0 ? (c.dueDay >= today ? relDay(c.dueDay, today) : 'Past due') : 'Statement paid in full ✓'}
+                    />
+                    <KV label="Minimum payment" value={c.minRemaining > 0 ? <Amount n={c.minRemaining} /> : 'Paid ✓'} />
+                    <KV
+                      label="Remaining statement balance"
+                      value={<Amount n={c.fullRemaining} />}
+                      sub={c.fullRemaining < c.statementBalance - 0.005 ? `of ${usd(c.statementBalance)} statement` : undefined}
+                    />
                   </>
                 ) : (
                   <KV label="Payment due" value="No payment due" sub={`Statement closes on the ${s.finance.card.statementDom}th`} />
@@ -151,7 +162,7 @@ export function Overview({ s, navigate, greet }: { s: GameState; navigate: (p: s
               <Sparkles size={20} />
               <div>
                 <b>Pre-approved: {usd(offer.amount, false)} in Shopifly Capital</b>
-                <p>Flat fee {usd(offer.fee, false)}, repaid from {Math.round(offer.withholdPct * 100)}% of your payouts.</p>
+                <p>Flat fee {usd(offer.fee, false)}, repaid from {pct1(offer.withholdPct)} of your payouts.</p>
                 <Btn kind="link" onClick={() => navigate('offers')}>See offer</Btn>
               </div>
             </div>
@@ -169,7 +180,11 @@ export function Overview({ s, navigate, greet }: { s: GameState; navigate: (p: s
           {t.enabled && (
             <Panel title="Estimated taxes" action={<Btn kind="link" onClick={() => navigate('taxes')}>Details</Btn>}>
               <KV label={`${t.label} due ${formatDate(t.dueDay, 'md')}`} value={<Amount n={(t.pending || t.estimate) + t.owed} />} sub={t.autopay ? 'Autopay from checking' : 'Pay manually'} />
-              <KV label="Business profit this year" value={<Amount n={t.ytdProfit} />} />
+              {priorTaxYear ? (
+                <KV label={`Business profit ${taxYear}`} value={<Amount n={s.finance.taxes.priorYearProfit ?? 0} />} sub={`${yearOf(today)} so far: ${usd(t.ytdProfit)}`} />
+              ) : (
+                <KV label="Business profit this year" value={<Amount n={t.ytdProfit} />} />
+              )}
             </Panel>
           )}
 
@@ -196,12 +211,15 @@ function BufferMeter({ s }: { s: GameState }) {
     const p = s.finance.pnl[d]
     if (p) spend += p.adSpendFadbook + p.adSpendTiktak
   }
-  if (spend <= 0) return <p className="bk-muted">No ad spend in the last 7 days.</p>
+  if (spend <= 0) return <p className="bk-muted">No ad billing in the last 7 days.</p>
   const ratio = s.finance.cash / spend
   return (
     <div className="bk-buffer">
       <Meter value={Math.min(1, ratio)} tone={ratio >= 1 ? 'ok' : ratio >= 0.5 ? 'warn' : 'bad'} />
-      <span>{usd(s.finance.cash, false)} of {usd(spend, false)} (7-day ad spend)</span>
+      <span>
+        {ratio >= 1 ? `Goal met: checking covers ${ratio >= 10 ? '10+' : ratio.toFixed(1)} weeks of ad billing` : `${usd(Math.max(0, spend - s.finance.cash), false)} to go`}
+        {' '}· {usd(spend, false)} billed in the last 7 days
+      </span>
     </div>
   )
 }

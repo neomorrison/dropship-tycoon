@@ -101,10 +101,15 @@ export function AudienceEditor({ s, value, onChange, advantage, onManageAudience
   const pixel = hasPixel(s, 'fadbook')
   const mine = useMemo(() => audiences.filter(a => a.platform === 'fadbook'), [audiences])
   const set = (p: Partial<Targeting>) => onChange({ ...value, ...p })
+  // remember detailed-targeting picks while the player tries other audience types, so switching
+  // back to "Detailed targeting" doesn't silently throw their interests away
+  const lastInterests = useRef<string[]>(value.interests)
+  if (value.type === 'interest') lastInterests.current = value.interests
   const pickType = (type: Targeting['type']) => {
     if (type === value.type) return
     const pool = mine.filter(a => a.kind === type)
-    set({ type, interests: type === 'interest' ? value.interests : [], audienceId: type === 'lookalike' || type === 'retargeting' ? (pool[0]?.id ?? null) : null })
+    const keep = pool.some(a => a.id === value.audienceId) ? value.audienceId : (pool[0]?.id ?? null)
+    set({ type, interests: type === 'interest' ? lastInterests.current : [], audienceId: type === 'lookalike' || type === 'retargeting' ? keep : null })
   }
   const geo = (
     <AmField label="Locations" labelTip="People living in or recently in these locations.">
@@ -262,6 +267,9 @@ export function AudiencePane({ s, targeting, dailyBudget, note }: { s: GameState
   const size = estimateAudienceSize(s, 'fadbook', targeting)
   const est = estimateDailyResults(s, 'fadbook', targeting, Math.max(0, dailyBudget))
   const range = (r: [number, number]) => `${people(r[0])} – ${people(Math.max(r[1], r[0] === 0 ? 1 : r[1]))}`
+  // a day can't reach more accounts than the audience holds (small retargeting / lookalike pools)
+  const cap = Math.max(1, Math.round(size))
+  const reach: [number, number] = [Math.min(est.reach[0], Math.round(cap * 0.85)), Math.min(est.reach[1], cap)]
   return (
     <div className="fb-pane-stack">
       <AmCard>
@@ -276,7 +284,7 @@ export function AudiencePane({ s, targeting, dailyBudget, note }: { s: GameState
       <AmCard title="Estimated daily results" titleTip="Estimates use market data for similar advertisers and your budget. They aren't a guarantee of results.">
         <dl className="fb-est">
           <dt>Accounts Center accounts reached</dt>
-          <dd>{dailyBudget > 0 ? range(est.reach) : amFmt.dash}</dd>
+          <dd>{dailyBudget > 0 ? range(reach) : amFmt.dash}</dd>
           <dt>Link clicks</dt>
           <dd>{dailyBudget > 0 ? range(est.linkClicks) : amFmt.dash}</dd>
           <dt>Conversions</dt>
@@ -411,7 +419,14 @@ export function AdCreativeEditor({ s, draft, onChange, showName = true }: { s: G
         )}
       </AmCard>
       <AmCard title="Ad creative" titleTip="Choose the image or video for your ad. Creatives come from your CreatorHub library.">
-        <CreativePicker s={s} product={product} value={draft.creativeId} onChange={id => set({ creativeId: id })} />
+        <CreativePicker s={s} product={product} value={draft.creativeId} onChange={id => {
+          // an ad still carrying an automatic name follows its creative, so a creative test reads
+          // "Problem · …" / "ASMR · …" in the table instead of three identical "New Sales Ad" rows
+          const prev = s.creatives.creatives.find(c => c.id === draft.creativeId)
+          const next = s.creatives.creatives.find(c => c.id === id)
+          const auto = !draft.name.trim() || draft.name === 'New Sales Ad' || (!!prev && draft.name === prev.name)
+          set({ creativeId: id, ...(auto && next ? { name: next.name } : {}) })
+        }} />
         <AmField
           label="Primary text"
           labelTip="Primary text appears above your image or video. Around 125 characters show before “See more”."

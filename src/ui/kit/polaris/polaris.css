@@ -133,10 +133,12 @@
 .p-page-compact .p-page-title { font-size: 18px; line-height: 24px; }
 .p-page-pagination { display: flex; gap: 0; }
 .p-page-body { display: flex; flex-direction: column; gap: 16px; }
+/* narrow pages (phone): secondary actions collapse into the "…" menu, so they stay on the title row
+   at the right like the mobile admin; the title and subtitle wrap instead */
+.p-page-compact .p-page-titlewrap { flex-basis: 0; }
 @media (max-width: 640px) {
   .p-page { padding: 16px 12px 32px; }
-  .p-page-header { flex-wrap: wrap; }
-  .p-page-actions { width: 100%; justify-content: flex-start; }
+  .p-page-titlewrap { flex-basis: 0; }
 }
 
 /* ---- Layout ---- */
@@ -307,6 +309,8 @@
   font-family: var(--p-font); font-size: 12px; line-height: 16px; font-weight: 550; white-space: nowrap; vertical-align: middle;
 }
 .p-badge-withicon { padding-left: 4px; }
+/* a badge placed straight in a BlockStack keeps its size instead of stretching across the column */
+.p-block > .p-badge { align-self: flex-start; }
 .p-badge-large { padding: 4px 8px; font-size: 13px; line-height: 16px; }
 .p-badge-text { overflow: hidden; text-overflow: ellipsis; }
 .p-badge-icon { display: inline-flex; flex: none; }

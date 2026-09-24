@@ -62,6 +62,9 @@ export const usd = (n: number, cents = true) =>
 
 export const round2 = (n: number) => Math.round(n * 100) / 100
 
+/** 0.165 → "16.5%", 0.17 → "17%" (one decimal only when it matters) */
+export const pct1 = (v: number) => `${(Math.round(v * 1000) / 10).toFixed(1).replace(/\.0$/, '')}%`
+
 /** "7 AM", "11:30 PM" */
 export function clockLabel(hourOfDayValue: number, minutes = 0): string {
   const h = ((Math.floor(hourOfDayValue) % 24) + 24) % 24

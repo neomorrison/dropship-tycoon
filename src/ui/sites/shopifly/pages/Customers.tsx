@@ -4,13 +4,13 @@ import type { ShopiflyPageProps } from '../route'
 import type { Order } from '../../../../core/types'
 import { useGS, useGSShallow } from '../../../../core/store'
 import { dayOf, formatDate } from '../../../../core/time'
-import { STATE_NAMES } from '../../../../data/customers'
 import {
   Badge, BlockStack, Card, EmptyState, IndexFilters, IndexTable, InlineStack, Layout, Link, Page, PolarisProvider, Text,
 } from '../../../kit/polaris'
-import { deriveCustomers, fulfillmentBadge, itemsLabel, paymentBadge, productThumb, productTitle, type CustomerRow } from '../core/orders'
+import { deriveCustomers, fulfillmentBadge, itemsLabel, paymentBadge, productThumb, productTitle, streetFor, zipFor, type CustomerRow } from '../core/orders'
 import { ProductCell, StatusBadgeView, TableCard, useNow, useToday } from '../core/ui'
-import { listDate, longDate, pct2, usd } from '../core/format'
+import { listDate, longDate, orderMinute, pct2, usd } from '../core/format'
+import { ExportModal } from '../core/ExportModal'
 
 type View = 'all' | 'returning' | 'subscribed' | 'new'
 const VIEWS: { id: View; label: string }[] = [
@@ -32,6 +32,7 @@ function CustomerList({ navigate, customers, subscribers, knownTotal }: Shopifly
   const [view, setView] = useState(0)
   const [q, setQ] = useState('')
   const [selected, setSelected] = useState<string[]>([])
+  const [exporting, setExporting] = useState(false)
   const rows = useMemo(() => {
     const v = VIEWS[view].id
     const ql = q.trim().toLowerCase()
@@ -57,7 +58,7 @@ function CustomerList({ navigate, customers, subscribers, knownTotal }: Shopifly
 
   return (
     <PolarisProvider>
-      <Page title="Customers" fullWidth>
+      <Page title="Customers" fullWidth secondaryActions={[{ content: 'Export', onAction: () => setExporting(true) }]}>
         <Card padding="0">
           <div className="sf-cust-stats">
             <div><Text as="span" fontWeight="semibold">{Math.max(knownTotal, customers.length).toLocaleString('en-US')} customers</Text><Text as="span" tone="subdued"> · 100% of your customer base</Text></div>
@@ -77,6 +78,7 @@ function CustomerList({ navigate, customers, subscribers, knownTotal }: Shopifly
             onRowClick={c => navigate(`customers/${c.id}`)}
             defaultSort={{ columnId: 'last', direction: 'descending' }}
             pageSize={50}
+            resetPageKey={`${view}|${q}`}
             emptyState={<EmptyState heading="No customers found" image="search" compact>Try changing the filters or search term.</EmptyState>}
             columns={[
               { id: 'name', title: 'Customer name', sortValue: c => c.name, render: c => <Text as="span" fontWeight="semibold">{c.name}</Text> },
@@ -92,6 +94,24 @@ function CustomerList({ navigate, customers, subscribers, knownTotal }: Shopifly
           />
         </Card>
       </Page>
+      {exporting && (
+        <ExportModal
+          open
+          onClose={() => setExporting(false)}
+          resource="customers"
+          filename={`customers_export_day${today + 1}.csv`}
+          scopes={[
+            { value: 'all', label: 'All customers', rows: customers },
+            ...(view > 0 || q.trim() ? [{ value: 'view', label: q.trim() ? 'Customers matching your search' : ({ all: 'All customers', returning: 'Returning customers', subscribed: 'Email subscribers', new: 'Customers new this month' } as const)[VIEWS[view].id], rows }] : []),
+            { value: 'selected', label: 'Selected customers', rows: customers.filter(c => selected.includes(c.id)) },
+          ]}
+          headings={['First Name', 'Last Name', 'Email', 'Accepts Email Marketing', 'Default Address City', 'Default Address Province Code', 'Default Address Country Code', 'Total Spent', 'Total Orders', 'First Order', 'Last Order']}
+          toRow={c => {
+            const [firstName, ...rest] = c.name.split(' ')
+            return [firstName, rest.join(' '), c.email, c.subscribed ? 'yes' : 'no', c.city, c.region, 'US', c.spent.toFixed(2), c.orders, formatDate(dayOf(c.firstHour), 'iso'), formatDate(dayOf(c.lastHour), 'iso')]
+          }}
+        />
+      )}
     </PolarisProvider>
   )
 }
@@ -145,7 +165,7 @@ function CustomerDetail({ params, navigate, customers, orders }: ShopiflyPagePro
                       </InlineStack>
                       <Text as="span" fontWeight="semibold">{usd(last.total)}</Text>
                     </InlineStack>
-                    <Text as="p" tone="subdued">{listDate(last.hour, now, last.id)} from Online Store</Text>
+                    <Text as="p" tone="subdued">{listDate(last.hour, now, last.id, orderMinute(orders, last))} from Online Store</Text>
                     <ProductCell src={productThumb(products, last.storeProductId, last.catalogId)} title={productTitle(products, last)} sub={`${usd(last.subtotal / Math.max(1, last.qty))} × ${last.qty}${last.variant ? ` · ${last.variant}` : ''}`} />
                   </BlockStack>
                 </Card>
@@ -155,7 +175,7 @@ function CustomerDetail({ params, navigate, customers, orders }: ShopiflyPagePro
                   {theirs.map(o => (
                     <button key={o.id} type="button" className="sf-cust-order" onClick={() => navigate(`orders/${o.id}`)}>
                       <span className="sf-cust-order-num">#{o.id}</span>
-                      <span className="sf-cust-order-date">{listDate(o.hour, now, o.id)}</span>
+                      <span className="sf-cust-order-date">{listDate(o.hour, now, o.id, orderMinute(orders, o))}</span>
                       <span className="sf-cust-order-badges"><StatusBadgeView b={paymentBadge(o)} /><StatusBadgeView b={fulfillmentBadge(o)} /></span>
                       <span className="sf-cust-order-items">{itemsLabel(o.qty)}</span>
                       <span className="sf-cust-order-total">{usd(o.total)}</span>
@@ -177,8 +197,9 @@ function CustomerDetail({ params, navigate, customers, orders }: ShopiflyPagePro
                   <BlockStack gap="050">
                     <Text as="h3" variant="headingXs">Default address</Text>
                     <Text as="span">{c.name}</Text>
-                    <Text as="span">{c.city} {c.region}</Text>
-                    <Text as="span">{STATE_NAMES[c.region] ?? c.region}, United States</Text>
+                    <Text as="span">{streetFor(c.email)}</Text>
+                    <Text as="span">{c.city} {c.region} {zipFor(c.email, c.region)}</Text>
+                    <Text as="span">United States</Text>
                   </BlockStack>
                   <BlockStack gap="100">
                     <Text as="h3" variant="headingXs">Marketing</Text>

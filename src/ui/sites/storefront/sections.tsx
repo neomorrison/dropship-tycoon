@@ -3,6 +3,7 @@
 // `ctx.editor` renders dashed placeholders for sections that have nothing to show yet,
 // so merchants can see where an empty section sits on the page.
 import { useState, type ComponentType, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Award, BadgeCheck, BatteryCharging, Check, ChevronDown, Clock, CreditCard, Droplets, Feather, Flame, Gift, Headset, Heart,
   Leaf, Lock, Package, PackageCheck, Play, Recycle, Ruler, ShieldCheck, Smile, Sparkles, Star, ThumbsUp, Timer, Truck, Undo2,
@@ -20,7 +21,7 @@ import { formatDate } from '../../../core/time'
 import { money } from '../../../core/format'
 import { Countdown, Stars, initials } from '../../kit/common'
 import { MediaImage } from './media'
-import { useStoreOverlay } from './overlay'
+import { useBottomSlot, useStoreOverlay } from './overlay'
 import { sampleReviews, starCounts } from './reviews'
 import type { ProductModel, StoreView } from './view'
 import { PAYMENT_LABELS } from '../../../sim/store'
@@ -460,6 +461,8 @@ function UgcGallerySection({ settings, ctx }: SectionProps<'ugc_gallery'>) {
     ...chosen.map(c => ({ key: c.id, item: { kind: c.isVideo ? ('video' as const) : ('ugc_photo' as const), src: c.thumb, alt: c.name }, label: c.producer === 'ugc' ? 'Creator video' : 'Customer' })),
     ...photos.map(m => ({ key: m.id, item: m, label: 'Customer photo' })),
   ].slice(0, 8)
+  // fill whole rows of the 4-column grid (no lone tile on a second row)
+  if (tiles.length > 4) tiles.length -= tiles.length % 4
   if (!tiles.length) return <Placeholder ctx={ctx}>Customer photos &amp; videos: needs UGC content for this product.</Placeholder>
   return (
     <section className="st-section st-ugc">
@@ -512,7 +515,8 @@ function AsSeenOnSection({ settings, ctx }: SectionProps<'as_seen_on'>) {
 // ---------------------------------------------------------------------------
 export function StickyAtcBar({ settings, ctx, visible }: SectionProps<'sticky_atc'> & { visible: boolean }) {
   const p = ctx.model.product
-  return (
+  const slot = useBottomSlot()
+  const bar = (
     <div className={`st-sticky${visible ? ' is-visible' : ''}`} aria-hidden={!visible}>
       <div className="st-sticky-inner">
         {p.media[0] && <MediaImage item={p.media[0]} small showBadges={false} className="st-sticky-thumb" />}
@@ -524,6 +528,8 @@ export function StickyAtcBar({ settings, ctx, visible }: SectionProps<'sticky_at
       </div>
     </div>
   )
+  // pinned to the bottom of the whole store page (see BottomSlotCtx), not just the product section
+  return slot ? createPortal(bar, slot) : bar
 }
 
 // ---------------------------------------------------------------------------

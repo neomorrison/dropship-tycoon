@@ -387,7 +387,9 @@ export function subscribeSpyTool(s: GameState): boolean {
   if (spyToolActive(s)) {
     if (!c.spyToolAutoRenew) {
       c.spyToolAutoRenew = true
-      upsertBill(s, mineoBill(s, (c.spyToolUntilDay ?? day) + 1))
+      // same schedule as a fresh subscription (the renewal bills on the last day of paid access), but
+      // never today: today's bills already ran, and the renewal check needs the charge before access ends
+      upsertBill(s, mineoBill(s, Math.max(c.spyToolUntilDay ?? day, day + 1)))
     }
     return true
   }
@@ -401,7 +403,7 @@ export function subscribeSpyTool(s: GameState): boolean {
   c.spyToolAutoRenew = true
   upsertBill(s, mineoBill(s, day + 30))
   mail(s, {
-    ...MINEO, tag: 'misc', site: 'mineo',
+    ...MINEO, tag: 'platform', site: 'mineo',
     subject: 'Welcome to Mineo Pro — your receipt',
     body: `Thanks for subscribing!\n\nPlan: Mineo Pro (monthly)\nCharged: ${money(MINEO_MONTHLY)} to your card on file\nRenews: ${formatDate(day + 30, 'long')}\n\nYou now have full access to the ad library: active ads, advertisers, engagement trends and top creatives for every product we track.\n\nPro tip from our team: lots of ads that have been running for months = a crowded market. A handful of recent ads with strong engagement = an early mover's window.\n\n— The Mineo team`,
   })

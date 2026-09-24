@@ -1,13 +1,13 @@
 // Chaise Bank — Sapphire card: pay, autopay, statements, rates, credit-limit increase.
 import { useState } from 'react'
-import { CreditCard } from 'lucide-react'
 import type { GameState } from '../../../core/types'
 import { formatDate } from '../../../core/time'
-import { CARD_RULES, creditIncreaseEligibility, payCardBalance, requestCreditIncrease, setAutopay } from '../../../sim/finance'
+import { CARD_RULES, payCardBalance, setAutopay } from '../../../sim/finance'
 import { acctLast4, acctName, cardInfo } from './bankData'
 import { Amount, Btn, FlashBar, KV, Meter, Notice, Panel } from './ui'
 import { SiteLayer } from './SiteLayer'
-import { relDay, round2, run, simRead, todayOf, useFlash, usd } from './lifeCommon'
+import { CreditIncreasePanel } from './CreditIncrease'
+import { relDay, round2, run, todayOf, useFlash, usd } from './lifeCommon'
 
 type PayChoice = 'min' | 'statement' | 'current' | 'other'
 
@@ -18,11 +18,12 @@ export function CardPage({ s, navigate }: { s: GameState; navigate: (p: string) 
   const [other, setOther] = useState('')
   const [confirm, setConfirm] = useState(false)
   const [flash, setFlash] = useFlash(6000)
-  const inc = simRead(s, st => creditIncreaseEligibility(st, today), { ok: false as boolean, reason: 'Unavailable right now.' as string | undefined })
 
   const amountFor = (ch: PayChoice) =>
     ch === 'min' ? c.minRemaining : ch === 'statement' ? c.fullRemaining : ch === 'current' ? c.balance : Number(other.replace(/[^0-9.]/g, '')) || 0
-  const amount = round2(Math.min(amountFor(choice), c.balance))
+  const typed = amountFor(choice)
+  const amount = round2(Math.min(typed, c.balance))
+  const capped = choice === 'other' && typed > c.balance + 0.005 && c.balance > 0
   const err =
     amount <= 0 ? 'Enter an amount greater than $0.00.'
       : amount > s.finance.cash + 0.005 ? `That's more than your checking balance (${usd(s.finance.cash)}).`
@@ -40,11 +41,6 @@ export function CardPage({ s, navigate }: { s: GameState; navigate: (p: string) 
     run(st => setAutopay(st, mode))
     setFlash({ tone: 'info', text: mode === 'none' ? 'Autopay turned off. Pay manually before each due date.' : `Autopay set to ${mode === 'min' ? 'minimum payment' : 'statement balance'}.` })
   }
-  const askIncrease = () => {
-    const r = run(st => requestCreditIncrease(st))
-    if (r?.ok && r.newLimit) setFlash({ tone: 'success', text: `Approved! Your new credit limit is ${usd(r.newLimit, false)}.` })
-    else setFlash({ tone: 'warning', text: r?.reason ?? 'We couldn’t approve an increase right now.' })
-  }
 
   const statements = [...c.statements].reverse().slice(0, 12)
   const dueIn = c.dueDay !== null ? c.dueDay - today : null
@@ -55,7 +51,7 @@ export function CardPage({ s, navigate }: { s: GameState; navigate: (p: string) 
       <FlashBar flash={flash} />
       {c.frozen && (
         <Notice tone="critical" title="Card frozen">
-          After {CARD_RULES.latesToFreeze} late payments new purchases are blocked. Pay the past-due amount{c.pastDue > 0 ? ` of ${usd(c.pastDue)}` : ''} and the card reopens automatically.
+          After {CARD_RULES.latesToFreeze} late payments new purchases are blocked. Pay the full statement balance{Math.max(c.fullRemaining, c.pastDue) > 0 ? ` (${usd(Math.max(c.fullRemaining, c.pastDue))} left${c.pastDue > 0 ? `, including ${usd(c.pastDue)} past due` : ''})` : ''} and the card reopens automatically.
         </Notice>
       )}
       {!c.frozen && c.pastDue > 0 && (
@@ -112,7 +108,8 @@ export function CardPage({ s, navigate }: { s: GameState; navigate: (p: string) 
                   <b>{acctName(s, 'bank')}</b>
                   <span className="bk-muted">Available {usd(s.finance.cash)}</span>
                 </div>
-                {c.balance > 0 && err && choice === 'other' && other && <p className="bk-err">{err}</p>}
+                {c.balance > 0 && err && (choice !== 'other' || other) && <p className="bk-err">{err}</p>}
+                {capped && !err && <p className="bk-fine" style={{ marginTop: 0 }}>You can't pay more than your current balance, so this payment is {usd(amount)}.</p>}
                 <Btn disabled={c.balance <= 0 || !!err} onClick={() => setConfirm(true)}>Pay {amount > 0 ? usd(amount) : ''}</Btn>
                 <p className="bk-fine">
                   Paying your full statement balance by the due date means no interest on purchases. Paying only the minimum means interest on everything, including new purchases, at {(c.apr * 100).toFixed(2)}% APR.
@@ -128,19 +125,19 @@ export function CardPage({ s, navigate }: { s: GameState; navigate: (p: string) 
               <div className="bk-table-wrap">
                 <table className="bk-table">
                   <thead>
-                    <tr><th>Closing date</th><th className="r">Balance</th><th className="r">Minimum</th><th>Due</th><th className="r">Interest</th><th className="r">Fees</th><th className="r">Paid</th><th>Status</th></tr>
+                    <tr><th>Closing date</th><th className="r">Balance</th><th className="r">Minimum</th><th>Due</th><th className="r">Interest</th><th className="r">Fees</th><th className="r">Payments</th><th>Status</th></tr>
                   </thead>
                   <tbody>
                     {statements.map(st => (
                       <tr key={st.closeDay}>
-                        <td>{formatDate(st.closeDay, 'short')}</td>
+                        <td className="bk-nowrap">{formatDate(st.closeDay, 'short')}</td>
                         <td className="r"><Amount n={st.balance} /></td>
-                        <td className="r"><Amount n={st.minDue} /></td>
-                        <td>{formatDate(st.dueDay, 'md')}</td>
+                        <td className="r">{st.balance > 0 ? <Amount n={st.minDue} /> : '—'}</td>
+                        <td className="bk-nowrap">{st.balance > 0 ? formatDate(st.dueDay, 'md') : '—'}</td>
                         <td className="r">{st.interest > 0 ? <Amount n={st.interest} /> : '—'}</td>
                         <td className="r">{st.fees > 0 ? <Amount n={st.fees} /> : '—'}</td>
                         <td className="r"><Amount n={st.paid} /></td>
-                        <td><StatementStatus status={st.status} dueDay={st.dueDay} today={today} /></td>
+                        <td><StatementStatus status={st.status} balance={st.balance} dueDay={st.dueDay} today={today} /></td>
                       </tr>
                     ))}
                   </tbody>
@@ -178,17 +175,7 @@ export function CardPage({ s, navigate }: { s: GameState; navigate: (p: string) 
             <KV label="Late payments" value={String(c.lateCount)} sub={`${CARD_RULES.latesToFreeze} lates freeze the card`} />
           </Panel>
 
-          <Panel title="Credit limit increase">
-            <div className="bk-goal">
-              <CreditCard size={22} />
-              <div>
-                <p className="bk-fine" style={{ marginTop: 0 }}>
-                  Chaise reviews your payment history and recent income. You need {CARD_RULES.onTimeForIncrease} on-time statements in a row (you have {c.onTimeStreak}); reviews are allowed every {CARD_RULES.increaseCooldownDays} days.
-                </p>
-                {inc.ok ? <Btn small onClick={askIncrease}>Request increase</Btn> : <p className="bk-muted">{inc.reason}</p>}
-              </div>
-            </div>
-          </Panel>
+          <CreditIncreasePanel s={s} setFlash={setFlash} />
           <Btn kind="link" onClick={() => navigate('activity/card')}>See card activity →</Btn>
         </aside>
       </div>
@@ -222,7 +209,8 @@ function PayRadio({ id, label, value, choice, setChoice, disabled }: { id: PayCh
   )
 }
 
-function StatementStatus({ status, dueDay, today }: { status: string; dueDay: number; today: number }) {
+function StatementStatus({ status, balance, dueDay, today }: { status: string; balance: number; dueDay: number; today: number }) {
+  if (balance <= 0.005) return <span className="bk-pill">No balance</span>
   if (status === 'paid_full') return <span className="bk-pill is-ok">Paid in full</span>
   if (status === 'paid_min') return <span className="bk-pill is-info">Minimum paid</span>
   if (status === 'late') return <span className="bk-pill is-bad">Late</span>

@@ -21,7 +21,7 @@ export type ShopiflyNav =
  *   'finances' · 'finances/payouts' · 'finances/payouts/<payoutId>' · 'finances/transactions'
  *   'finances/billing' · 'finances/capital'
  *   'disputes' · 'disputes/<chargebackId>'
- *   'inbox' · 'inbox/<ticketId>'
+ *   'inbox' · 'inbox/<ticketId>' · 'inbox/overdue' (also open / solved / all)
  *   'marketing' · 'marketing/attribution' · 'marketing/automations'
  *   'discounts' · 'online-store' · 'online-store/editor/…' · 'apps' · 'apps/<appId>' · 'settings/…'
  */
@@ -44,6 +44,7 @@ export const SHOPIFLY_PATHS = {
   disputes: 'disputes',
   dispute: (id: string) => `disputes/${id}`,
   inbox: 'inbox',
+  inboxOverdue: 'inbox/overdue',
   ticket: (id: string) => `inbox/${id}`,
   marketing: 'marketing',
   attribution: 'marketing/attribution',

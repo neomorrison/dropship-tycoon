@@ -12,7 +12,7 @@ import { formatDate } from '../../core/time'
 import { sfx, setMasterVolume, setMusicOn, setMusicVolume, setSfxOn, setSfxVolume, setMuted, useAudioPrefs } from '../audio'
 import { Switch, useDismiss } from './common'
 import { isAutopilot, setAutopilot } from '../../sim/life'
-import { enterGame, quitToTitle } from './actions'
+import { enterGame, importErrorText, quitToTitle } from './actions'
 import { useShell, useShellPrefs, pushToast } from './shellStore'
 import { recapInsight } from './recap'
 
@@ -123,7 +123,7 @@ function SettingsOverlay({ onClose }: { onClose: () => void }) {
       const st = await importSave(f)
       setPendingImport(st)
     } catch (e) {
-      setImportErr(e instanceof Error ? e.message : 'That file is not a Dropship Tycoon save.')
+      setImportErr(importErrorText(e))
       sfx.error()
     } finally {
       if (fileRef.current) fileRef.current.value = ''
@@ -341,8 +341,8 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
 // ---------------------------------------------------------------------------
 // Daily report (opened from the midnight recap toast)
 // ---------------------------------------------------------------------------
-function PnlLine({ label, value, sub, strong, neutral }: { label: string; value: number; sub?: string; strong?: boolean; neutral?: boolean }) {
-  if (!strong && Math.abs(value) < 0.005) return null
+function PnlLine({ label, value, sub, strong, neutral, show }: { label: string; value: number; sub?: string; strong?: boolean; neutral?: boolean; show?: boolean }) {
+  if (!strong && !show && Math.abs(value) < 0.005) return null
   return (
     <div className={clsx('sh-pnl-line', strong && 'is-total')}>
       <span>
@@ -413,7 +413,23 @@ function DailyReportOverlay({ onClose }: { onClose: () => void }) {
               <PnlLine label="Revenue" value={r.revenue} strong={false} neutral />
               <PnlLine label="Refunds & chargebacks" value={-r.refunds} />
               <PnlLine label="Product & shipping" value={-r.cogs} />
-              <PnlLine label="Ad spend" value={-r.adSpend} sub={r.adSpendFadbook && r.adSpendTiktak ? ` Fadbook ${money(r.adSpendFadbook, { cents: false })} · TikTak ${money(r.adSpendTiktak, { cents: false })}` : undefined} />
+              <PnlLine
+                label="Ad spend"
+                value={-r.adSpend}
+                show={r.adBilled > 0}
+                sub={
+                  [
+                    r.adSpendFadbook && r.adSpendTiktak ? `Fadbook ${money(r.adSpendFadbook, { cents: false })} · TikTak ${money(r.adSpendTiktak, { cents: false })}` : '',
+                    Math.abs(r.adBilled - r.adSpend) >= 1
+                      ? r.adBilled >= 1
+                        ? `Billed to you that day: ${money(r.adBilled, { cents: false })}`
+                        : 'Not billed yet: platforms charge in batches'
+                      : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' · ') || undefined
+                }
+              />
               <PnlLine label="Payment fees" value={-r.fees} />
               <PnlLine label="Apps & plan" value={-r.apps} />
               <PnlLine label="Creatives" value={-r.creatives} />

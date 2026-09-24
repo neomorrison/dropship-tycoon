@@ -99,7 +99,7 @@ export function AmDateRangePicker({
             today={today}
           />
           <div className="am-drp-foot">
-            <span className="am-drp-tz">Dates are shown in Pacific Time</span>
+            <span className="am-drp-tz">{t === 'tiktak' ? 'Time zone: (UTC-05:00) Eastern Time' : 'Dates are shown in Pacific Time'}</span>
             <AmButton size="sm" onClick={() => setOpen(false)}>Cancel</AmButton>
             <AmButton
               size="sm"
@@ -156,9 +156,11 @@ export interface ColumnsMenuProps {
   onDeletePreset?: (presetId: string) => void
   size?: 'sm' | 'md'
   theme?: AmTheme
+  /** render "Customize columns" inside the nearest positioned ancestor (the in-game browser) instead of a page portal */
+  inlineModal?: boolean
 }
 /** "Columns: Performance ▾" with presets and a full column customizer. */
-export function ColumnsMenu({ presets, allColumns, value, onChange, locked = [], onSavePreset, onDeletePreset, size = 'md', theme }: ColumnsMenuProps) {
+export function ColumnsMenu({ presets, allColumns, value, onChange, locked = [], onSavePreset, onDeletePreset, size = 'md', theme, inlineModal }: ColumnsMenuProps) {
   const t = useAmTheme(theme)
   const [modal, setModal] = useState(false)
   const current = presets.find(p => p.id === value.presetId)
@@ -199,6 +201,7 @@ export function ColumnsMenu({ presets, allColumns, value, onChange, locked = [],
       <AmMenu trigger={<AmButton size={size} icon={Columns3} caret>{label}</AmButton>} sections={sections} checkable width={240} theme={t} />
       {modal && (
         <CustomizeColumnsModal
+          inline={inlineModal}
           allColumns={allColumns}
           initial={value.columns}
           locked={locked}
@@ -216,7 +219,8 @@ export function ColumnsMenu({ presets, allColumns, value, onChange, locked = [],
   )
 }
 
-function CustomizeColumnsModal({ allColumns, initial, locked, canSave, theme, onClose, onApply }: {
+function CustomizeColumnsModal({ allColumns, initial, locked, canSave, theme, inline, onClose, onApply }: {
+  inline?: boolean
   allColumns: AmColumnDef[]
   initial: string[]
   locked: string[]
@@ -260,6 +264,7 @@ function CustomizeColumnsModal({ allColumns, initial, locked, canSave, theme, on
   return (
     <AmModal
       open
+      inline={inline}
       onClose={onClose}
       title="Customize columns"
       subtitle="Choose the metrics you want to see, then use the arrows to put them in order."

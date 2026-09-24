@@ -9,14 +9,14 @@
 //   'rules'            Automated rules + log (ADS_PATHS.rules)
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
-  Building2, ChevronDown, CircleQuestionMark, CreditCard, LayoutDashboard, Megaphone, Menu, Plus, ShieldCheck, UsersRound,
+  Building2, ChevronDown, CircleQuestionMark, CreditCard, LayoutDashboard, Megaphone, Menu, Plus, RefreshCw, ShieldCheck, UsersRound,
   Waypoints, Zap,
 } from 'lucide-react'
 import type { AdAccount, AdLevel, GameState } from '../../../core/types'
 import { act, useGS } from '../../../core/store'
 import { openSite } from '../../../core/ui'
 import { AGENCY_SETUP_FEE, openAccountBlocker, openAdAccount } from '../../../sim/ads'
-import { AmButton, AmMenu, AmModal, AmTag, AmThemeProvider, AmTooltip, amFmt } from '../../kit/adsmanager'
+import { AmButton, AmMenu, AmModal, AmNotice, AmTag, AmThemeProvider, AmTooltip, amFmt } from '../../kit/adsmanager'
 import { tileColor } from '../../kit/common'
 import type { SiteProps } from '../types'
 import { accountStatusLabel, displayId, fbAccounts, pickAccount } from './data'
@@ -65,6 +65,13 @@ export default function FadbookAdsManager({ path, navigate, compact }: SiteProps
   const accounts = useMemo(() => fbAccounts(s), [s.ads.accounts]) // eslint-disable-line react-hooks/exhaustive-deps
   const acc = pickAccount(accounts, ui.accountId)
   const r = route(path)
+  // selections, filters and the chosen ad account belong to one game: start clean after loading another
+  const saveId = s.meta.saveId ?? null
+  useEffect(() => {
+    if (ui.saveId !== saveId) {
+      ui.set({ saveId, accountId: null, level: 'campaign', sel: { campaign: [], adset: [], ad: [] }, query: '', filters: [], breakdown: null, view: 'table' })
+    }
+  }, [saveId]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (acc && ui.accountId !== acc.id) ui.set({ accountId: acc.id })
   }, [acc?.id]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -110,6 +117,7 @@ export default function FadbookAdsManager({ path, navigate, compact }: SiteProps
             </div>
             {!compact && (
               <div className="fb-header-right">
+                {r.page === 'manage' && <UpdatedButton />}
                 <span className="fb-biz">
                   <span className="fb-biz-tile" style={{ background: tileColor(acc.businessName ?? acc.name).bg, color: tileColor(acc.businessName ?? acc.name).fg }}>
                     {(acc.businessName ?? acc.name).slice(0, 1).toUpperCase()}
@@ -123,6 +131,21 @@ export default function FadbookAdsManager({ path, navigate, compact }: SiteProps
         </div>
       </div>
     </AmThemeProvider>
+  )
+}
+
+/** "Updated just now ⟳" (Ads Manager's refresh; the sim's numbers are always live). */
+function UpdatedButton() {
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    if (!busy) return
+    const t = setTimeout(() => setBusy(false), 700)
+    return () => clearTimeout(t)
+  }, [busy])
+  return (
+    <button type="button" className="fb-updated" onClick={() => setBusy(true)} title="Refresh">
+      <RefreshCw size={14} className={busy ? 'fb-spin' : undefined} /> {busy ? 'Updating…' : 'Updated just now'}
+    </button>
   )
 }
 
@@ -176,11 +199,19 @@ function AccountSwitcher({ s, acc, accounts, navigate, compact }: { s: GameState
   const ownBlock = openAccountBlocker(s, 'fadbook', false)
   const rentBlock = openAccountBlocker(s, 'fadbook', true)
   const tile = tileColor(acc.name)
+  const [openErr, setOpenErr] = useState<string | null>(null)
+  const close = () => { setConfirm(null); setOpenErr(null) }
   const open = (rented: boolean) => {
     let id: string | null = null
     act(g => { id = openAdAccount(g, 'fadbook', { rented }) })
-    setConfirm(null)
-    if (id) ui.set({ accountId: id, sel: { campaign: [], adset: [], ad: [] } })
+    if (id) {
+      close()
+      ui.set({ accountId: id, sel: { campaign: [], adset: [], ad: [] } })
+    } else {
+      setOpenErr(rented
+        ? `The ${amFmt.money(AGENCY_SETUP_FEE.fadbook)} setup fee was declined. Free up cash or card credit, then try again.`
+        : 'The ad account couldn\'t be created. Check your notifications for the reason.')
+    }
   }
   const trigger = (
     <button type="button" className="fb-acct">
@@ -225,16 +256,17 @@ function AccountSwitcher({ s, acc, accounts, navigate, compact }: { s: GameState
         <AmModal
           inline
           open
-          onClose={() => setConfirm(null)}
+          onClose={close}
           title={confirm === 'own' ? 'Create a new ad account?' : 'Rent an agency ad account?'}
           size="sm"
-          footer={<><AmButton onClick={() => setConfirm(null)}>Cancel</AmButton><AmButton variant="primary" onClick={() => open(confirm === 'rent')}>{confirm === 'own' ? 'Create' : `Pay ${amFmt.money(AGENCY_SETUP_FEE.fadbook)} and rent`}</AmButton></>}
+          footer={<><AmButton onClick={close}>Cancel</AmButton><AmButton variant="primary" onClick={() => open(confirm === 'rent')}>{confirm === 'own' ? 'Create' : `Pay ${amFmt.money(AGENCY_SETUP_FEE.fadbook)} and rent`}</AmButton></>}
         >
           <p className="fb-small">
             {confirm === 'own'
               ? 'The new account starts with the lowest daily spending limit and payment threshold, and gets extra scrutiny for its first two weeks.'
               : `An agency adds you to one of its aged accounts: higher spending limits and fewer restrictions, but a ${amFmt.money(AGENCY_SETUP_FEE.fadbook)} setup fee now and 3–6% on top of every ad bill.`}
           </p>
+          {openErr && <AmNotice tone="error">{openErr}</AmNotice>}
         </AmModal>
       )}
     </>

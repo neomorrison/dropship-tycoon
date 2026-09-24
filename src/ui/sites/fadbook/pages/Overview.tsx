@@ -37,6 +37,8 @@ export default function Overview({ s, acc, navigate }: { s: GameState; acc: AdAc
   const from = Math.max(range.from, firstDay)
   const days = useMemo(() => dailySeries(d, 'campaign', null, { from, to: range.to }), [d, from, range.to])
   const prevDays = useMemo(() => dailySeries(d, 'campaign', null, { from: from - (range.to - from + 1), to: from - 1 }), [d, from, range.to])
+  // the previous period only means something if the account delivered then
+  const hasPrev = before.st.impressions > 0 || before.st.spend > 0
   const def = METRIC_BY_ID.get(metric)!
   const kpi = KPIS.find(k => k.id === metric)!
   const span = range.to - from + 1
@@ -48,8 +50,8 @@ export default function Overview({ s, acc, navigate }: { s: GameState; acc: AdAc
     return {
       label: formatDate(p.day, 'md'),
       value: def.value?.(row, s) ?? 0,
-      compare: prow ? def.value?.(prow, s) ?? 0 : undefined,
-      compareLabel: q ? formatDate(q.day, 'md') : undefined,
+      compare: hasPrev && prow ? def.value?.(prow, s) ?? 0 : undefined,
+      compareLabel: hasPrev && q ? formatDate(q.day, 'md') : undefined,
     }
   })
   const status = accountStatusLabel(acc)
@@ -88,7 +90,11 @@ export default function Overview({ s, acc, navigate }: { s: GameState; acc: AdAc
               <span className="fb-kpi-label">{k.label}</span>
               <span className="fb-kpi-value">{(m.format ?? amFmt.int)(v)}</span>
               <span className="fb-kpi-delta">
-                {v !== null && pv ? <DeltaBadge cur={v} prev={pv} invert={k.invert} /> : <span className="fb-muted fb-small">{k.id === 'results' ? resultLabels(cur.resultKind).results : 'vs. previous period'}</span>}
+                {v !== null && pv && hasPrev ? (
+                  <><DeltaBadge cur={v} prev={pv} invert={k.invert} /><span className="fb-muted fb-small">vs. previous period</span></>
+                ) : (
+                  <span className="fb-muted fb-small">{k.id === 'results' ? resultLabels(cur.resultKind).results : hasPrev ? 'No data for previous period' : ''}</span>
+                )}
               </span>
             </button>
           )
@@ -99,7 +105,7 @@ export default function Overview({ s, acc, navigate }: { s: GameState; acc: AdAc
         title={kpi.label}
         titleTip={def.description}
         value={def.value?.(cur, s) ?? amFmt.dash}
-        comparisonValue={def.value?.(before, s) ?? null}
+        comparisonValue={hasPrev ? def.value?.(before, s) ?? null : null}
         invertDelta={kpi.invert}
         data={chartData}
         format={kpi.format}

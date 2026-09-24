@@ -86,4 +86,7 @@
 
 .am-table-empty td { height: auto !important; padding: 0 !important; background: var(--am-surface) !important; cursor: default; }
 .am-table-empty-inner { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 40px 16px; text-align: center; color: var(--am-text-2); }
+/* keep the empty-state message in the visible part of a wide, horizontally scrolling table */
+.am-table-scroll { container-type: inline-size; }
+.am-table-empty-inner { position: sticky; left: 0; width: 100cqi; }
 .am-table-loading { position: absolute; inset: 44px 0 0 0; z-index: 6; display: flex; justify-content: center; padding-top: 48px; background: rgba(255, 255, 255, 0.55); color: var(--am-primary); }

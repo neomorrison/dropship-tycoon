@@ -20,7 +20,7 @@
   font-size: 15px;
   line-height: 1.45;
 }
-.zl-root button, .zl-layer button { font: inherit; }
+:where(.zl-root, .zl-layer) button { font: inherit; }
 
 /* header */
 .zl-header { flex: none; position: relative; z-index: 10; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; height: 64px; padding: 0 24px; background: #fff; border-bottom: 1px solid var(--zl-line); }
@@ -50,6 +50,7 @@
 .zl-split { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); min-height: 0; }
 .zl-map { position: relative; overflow: hidden; background: #eef1ec; border-right: 1px solid var(--zl-line); min-height: 0; }
 .zl-map-art { position: absolute; inset: 0; width: 100%; height: 100%; }
+.zl-map-label { position: absolute; transform: translate(-50%, 6px); font-size: 11px; font-weight: 600; letter-spacing: 0.02em; color: #62705f; white-space: nowrap; pointer-events: none; text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff; }
 .zl-map-attrib { position: absolute; right: 6px; bottom: 4px; font-size: 10px; color: #7b8a80; background: rgba(255, 255, 255, 0.7); padding: 1px 4px; border-radius: 3px; }
 .zl-pin { position: absolute; transform: translate(-50%, -100%); display: inline-flex; align-items: center; gap: 3px; padding: 4px 8px; border-radius: 6px; border: 0; background: var(--zl-blue); color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25); transition: transform 0.12s, background 0.12s; white-space: nowrap; }
 .zl-pin::after { content: ''; position: absolute; left: 50%; bottom: -5px; transform: translateX(-50%); border: 5px solid transparent; border-top-color: inherit; border-bottom: 0; border-top-color: var(--zl-blue); }
@@ -96,6 +97,7 @@
 .zl-section { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--zl-line); }
 .zl-section h2 { margin: 0 0 10px; font-size: 20px; font-weight: 700; }
 .zl-section p { margin: 0 0 10px; }
+.zl-section p.zl-fine { margin: 12px 0 0; }
 .zl-features { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 16px; }
 .zl-features li { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; }
 .zl-features svg { flex: none; margin-top: 3px; color: var(--zl-blue); }

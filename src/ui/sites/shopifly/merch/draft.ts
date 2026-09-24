@@ -91,7 +91,8 @@ export function draftPatch(d: ProductDraft): Partial<StoreProduct> {
     trackInventory: d.trackInventory,
     weightKg: Math.round(draftWeightKg(d) * 1000) / 1000,
     variants: cleanVariants(d.variants),
-    seo: { title: d.seo.title.trim(), description: d.seo.description.trim(), handle: slugHandle(d.seo.handle) },
+    // like Shopify, a cleared URL handle is regenerated from the title
+    seo: { title: d.seo.title.trim(), description: d.seo.description.trim(), handle: slugHandle(d.seo.handle) || slugHandle(d.title) },
     productType: d.productType.trim(),
     vendor: d.vendor.trim(),
     tags: d.tags,
@@ -99,10 +100,15 @@ export function draftPatch(d: ProductDraft): Partial<StoreProduct> {
   }
 }
 
-/** The product as it would be after saving (for live grading and the preview). */
+/**
+ * The product as it would be after saving (for live grading and the preview).
+ * `promisedDays` is cleared like updateProduct() does when sections/description change, so the
+ * grader and the storefront read the delivery window from the draft's shipping section
+ * (or description) instead of the last saved promise.
+ */
 export function applyDraft(p: StoreProduct, d: ProductDraft): StoreProduct {
   const patch = draftPatch(d)
-  return { ...p, ...patch, status: d.status, title: (patch.title ?? '').replace(/\s+/g, ' ').trim() }
+  return { ...p, ...patch, status: d.status, title: (patch.title ?? '').replace(/\s+/g, ' ').trim(), promisedDays: null }
 }
 
 /** Stable key for dirty checks (ignores the display unit of the weight field). */

@@ -28,7 +28,7 @@ export function coachTip(
   s: GameState,
   id: string,
   text: string,
-  o: { app?: SiteId; cooldownHours?: number; essential?: boolean; requested?: boolean } = {},
+  o: { app?: SiteId; path?: string; cooldownHours?: number; essential?: boolean; requested?: boolean } = {},
 ): boolean {
   if (!s.coach.enabled && !o.requested) return false
   const freq = DIFFICULTY[s.meta.difficulty].coach
@@ -38,7 +38,7 @@ export function coachTip(
   if (last !== undefined && s.time.hour - last < cd) return false
   if (freq === 'some' && !o.essential && !o.requested && s.coach.queue.length >= 2) return false
   s.coach.shown[id] = s.time.hour
-  s.coach.queue.push({ id, text, hour: s.time.hour, app: o.app })
+  s.coach.queue.push({ id, text, hour: s.time.hour, app: o.app, ...(o.app && o.path ? { path: o.path } : {}) })
   if (s.coach.queue.length > 6) s.coach.queue.splice(0, s.coach.queue.length - 6)
   return true
 }

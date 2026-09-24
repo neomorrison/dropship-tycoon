@@ -10,6 +10,7 @@ import {
   AmButton, AmField, AmMenu, AmModal, AmNotice, AmRadioCard, AmSegmented, AmSelect, AmTable, MetricCell, amFmt, type AmColumn,
 } from '../../../kit/adsmanager'
 import { EmptyBlock, Panel, PageHead, Pill, useGame, useTt } from '../common'
+import { entityDisplayId } from '../data'
 
 const WINDOWS = [7, 14, 30, 60, 90, 180]
 
@@ -36,7 +37,7 @@ export default function Audiences() {
   const cols: AmColumn<CustomAudience>[] = [
     {
       id: 'name', header: 'Audience name', width: 280, sticky: true, sortValue: a => a.name,
-      render: a => <div className="tt-col" style={{ gap: 1 }}><b style={{ fontSize: 13 }}>{a.name}</b><span className="tt-faint tt-small">ID: {a.id.replace(/\D/g, '').padStart(6, '0')}</span></div>,
+      render: a => <div className="tt-col" style={{ gap: 1 }}><b style={{ fontSize: 13 }}>{a.name}</b><span className="tt-faint tt-small">ID: {entityDisplayId(a.id).slice(0, 10)}</span></div>,
     },
     { id: 'type', header: 'Type', width: 170, render: a => <span style={{ fontSize: 12 }}>{a.kind === 'lookalike' ? 'Lookalike audience' : 'Custom audience · Website traffic'}</span> },
     {

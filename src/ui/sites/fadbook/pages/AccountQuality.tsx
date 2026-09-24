@@ -57,11 +57,19 @@ export default function AccountQuality({ s, acc, navigate }: { s: GameState; acc
     { ok: ageDays >= 14, label: 'Account age', detail: ageDays >= 14 ? `Created ${formatDate(acc.createdDay, 'short')}.` : `New account (${ageDays} day${ageDays === 1 ? '' : 's'} old). New accounts get extra scrutiny; avoid sudden budget jumps.` },
   ]
 
+  const [openErr, setOpenErr] = useState<string | null>(null)
   const doOpen = (rented: boolean) => {
     let id: string | null = null
     act(g => { id = openAdAccount(g, 'fadbook', { rented }) })
-    setConfirm(null)
-    if (id) ui.set({ accountId: id })
+    if (id) {
+      setConfirm(null)
+      setOpenErr(null)
+      ui.set({ accountId: id })
+    } else {
+      setOpenErr(rented
+        ? `The ${amFmt.money(AGENCY_SETUP_FEE.fadbook)} setup fee was declined. Free up cash or card credit, then try again.`
+        : 'The ad account couldn\'t be created. Check your notifications for the reason.')
+    }
   }
 
   return (
@@ -214,16 +222,17 @@ export default function AccountQuality({ s, acc, navigate }: { s: GameState; acc
         <AmModal
           inline
           open
-          onClose={() => setConfirm(null)}
+          onClose={() => { setConfirm(null); setOpenErr(null) }}
           title={confirm === 'backup' ? 'Create a new ad account?' : 'Rent an agency ad account?'}
           size="sm"
-          footer={<><AmButton onClick={() => setConfirm(null)}>Cancel</AmButton><AmButton variant="primary" onClick={() => doOpen(confirm === 'rent')}>{confirm === 'backup' ? 'Create' : `Pay ${amFmt.money(AGENCY_SETUP_FEE.fadbook)} and rent`}</AmButton></>}
+          footer={<><AmButton onClick={() => { setConfirm(null); setOpenErr(null) }}>Cancel</AmButton><AmButton variant="primary" onClick={() => doOpen(confirm === 'rent')}>{confirm === 'backup' ? 'Create' : `Pay ${amFmt.money(AGENCY_SETUP_FEE.fadbook)} and rent`}</AmButton></>}
         >
           <p className="fb-small">
             {confirm === 'backup'
               ? 'Your new account starts with a low daily spending limit and has to build trust again. Running the same risky ads there can get it restricted too, and repeated restrictions can ban you from creating accounts for 30 days.'
               : `The agency charges a ${amFmt.money(AGENCY_SETUP_FEE.fadbook)} setup fee now (on your default payment method) and adds 3–6% to every ad bill. Agency accounts have higher limits and are restricted less often.`}
           </p>
+          {openErr && <AmNotice tone="error">{openErr}</AmNotice>}
         </AmModal>
       )}
     </div>

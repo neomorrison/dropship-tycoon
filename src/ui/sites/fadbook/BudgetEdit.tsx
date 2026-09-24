@@ -5,8 +5,9 @@ import { useRef, useState } from 'react'
 import { Pencil } from 'lucide-react'
 import type { AdLevel } from '../../../core/types'
 import { getGS } from '../../../core/store'
+import { usePauseWhileMounted } from '../../../core/ui'
 import { minDailyBudget, wouldResetLearning } from '../../../sim/ads'
-import { AmButton, AmField, AmInput, AmTooltip, amFmt } from '../../kit/adsmanager'
+import { AmButton, AmField, AmInput, AmTooltip, amFmt, learningResetThreshold } from '../../kit/adsmanager'
 import { Floating } from '../../kit/common'
 
 export interface BudgetCheck { error?: string; warning?: string; change: number | null }
@@ -34,9 +35,16 @@ export function checkFbBudget(level: 'campaign' | 'adset', id: string | null, cu
     }
     if (resets) {
       const pct = change !== null ? Math.round(Math.abs(change) * 100) : 0
+      const who = level === 'campaign' ? 'this campaign\'s ad sets' : 'this ad set'
+      const limit = Math.round(learningResetThreshold('fadbook') * 100)
+      // the sim measures against the budget learning started from, so a small step right after
+      // another edit can still cross the line: say so instead of blaming a "5%" change
+      const small = change !== null && Math.abs(change) <= learningResetThreshold('fadbook') + 1e-9
       return {
         change,
-        warning: `Significant edits reset learning. A ${pct}% budget ${next > current ? 'increase' : 'decrease'} will send ${level === 'campaign' ? 'this campaign\'s ad sets' : 'this ad set'} back into the learning phase, and performance may be less stable while it re-learns.`,
+        warning: small
+          ? `Significant edits reset learning. Together with your recent budget change, this moves the budget more than ${limit}% from where learning started, so ${who} will go back into the learning phase. Leave a day between budget edits to avoid this.`
+          : `Significant edits reset learning. A ${pct}% budget ${next > current ? 'increase' : 'decrease'} will send ${who} back into the learning phase, and performance may be less stable while it re-learns.`,
       }
     }
   }
@@ -57,6 +65,8 @@ export function FbBudgetCell({ level, id, amount, adSetCount = 1, onSave, locked
   const anchor = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState('')
+  // the popover is an editor: hold the clock while it's open (like Ads Manager's own dialogs)
+  usePauseWhileMounted('fb-budget-pop', open)
   const next = parseFloat(draft)
   const check = open ? checkFbBudget(level, id, amount, next, adSetCount) : { change: null }
   const save = () => {

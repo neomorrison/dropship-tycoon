@@ -8,6 +8,7 @@ import {
 } from 'recharts'
 import { cx } from '../common/utils'
 import { Floating } from '../common/Floating'
+import { useElementWidth } from '../common/hooks'
 import { CHART_COLORS, ChartTip, LegendItem, SERIES_COLORS, formatAxis, formatValue, percentChange, type ChartFormat } from './shared'
 import './charts.css'
 
@@ -53,6 +54,50 @@ function isEmpty(data: Datum[], series: TrendSeries[]) {
   return !data.length || data.every(d => series.every(s => d[s.key] === null || d[s.key] === undefined))
 }
 
+/** 1 / 2 / 2.5 / 5 × 10ⁿ step at or above `raw`. */
+function niceStep(raw: number): number {
+  const exp = Math.floor(Math.log10(raw))
+  const base = 10 ** exp
+  const f = raw / base
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * base
+}
+
+/** Ticks from 0 to a round maximum (about 4 steps); null when values go negative. */
+function zeroBasedTicks(data: Datum[], series: TrendSeries[], format: ChartFormat, refs?: { value: number }[]): number[] | null {
+  let max = 0
+  for (const d of data) {
+    for (const s of series) {
+      const v = d[s.key]
+      if (typeof v !== 'number' || !Number.isFinite(v)) continue
+      if (v < 0) return null
+      if (v > max) max = v
+    }
+  }
+  for (const r of refs ?? []) if (Number.isFinite(r.value)) max = Math.max(max, r.value)
+  if (max <= 0) return null
+  let step = niceStep(max / 4)
+  // whole-number metrics (orders, sessions) never get fractional steps
+  if ((format === 'number' || format === 'money0') && step < 1) step = 1
+  const n = Math.max(1, Math.ceil(max / step - 1e-9))
+  return Array.from({ length: n + 1 }, (_, i) => Math.round(i * step * 1e6) / 1e6)
+}
+
+/**
+ * Evenly spaced x labels (every 2 hours, every 6th day…) instead of recharts' "preserveStartEnd",
+ * which pins the first and last label and leaves an uneven step in between (12 am, 3 am, 5 am…).
+ * Returns recharts' `interval` (labels skipped between two shown ones).
+ */
+function evenTickInterval(data: Datum[], xKey: string, width: number): number | 'preserveStartEnd' {
+  const n = data.length
+  if (!width || n <= 2) return 'preserveStartEnd'
+  let longest = 0
+  for (const d of data) longest = Math.max(longest, String(d[xKey] ?? '').length)
+  const labelW = longest * 5.6 + 14
+  const room = Math.max(2, Math.floor(Math.max(60, width - 56) / labelW))
+  for (const k of [1, 2, 3, 4, 6, 7, 12, 14, 24, 30, 48, 60, 90, 120, 180, 365]) if (Math.ceil(n / k) <= room) return k - 1
+  return Math.ceil(n / room) - 1
+}
+
 function Skeleton() {
   return (
     <div className="kc-skeleton" aria-hidden>
@@ -75,6 +120,10 @@ export function TrendChart({
   const pctLike = format === 'percent' || format === 'percent1'
   const colored = series.map((s, i) => ({ ...s, color: s.color ?? SERIES_COLORS[i % SERIES_COLORS.length] }))
   const showLegend = legend ?? series.length >= 2
+  // round axis steps ($0, $500, $1K, $1.5K) like the admin, instead of recharts' 0/450/900/1350
+  const niceTicks = !empty && !allZero && zeroBaseline ? zeroBasedTicks(data, series, format, referenceLines) : null
+  const [wrapRef, wrapW] = useElementWidth<HTMLDivElement>()
+  const xInterval = evenTickInterval(data, xKey, wrapW)
   const renderTip = (p: TooltipContentProps) => {
     if (!p.active || !p.payload?.length) return null
     const d = p.payload[0]?.payload as Datum | undefined
@@ -95,7 +144,7 @@ export function TrendChart({
   }
   return (
     <div className={cx('kc-root', className)}>
-      <div className="kc-chart" style={{ height }}>
+      <div ref={wrapRef} className="kc-chart" style={{ height }}>
         <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 480, height }}>
           <ComposedChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
             <CartesianGrid vertical={false} stroke={CHART_COLORS.grid} strokeWidth={1} />
@@ -104,8 +153,8 @@ export function TrendChart({
               tickLine={false}
               axisLine={false}
               tick={{ fontSize: 11, fill: CHART_COLORS.axis }}
-              interval="preserveStartEnd"
-              minTickGap={28}
+              interval={xInterval}
+              minTickGap={xInterval === 'preserveStartEnd' ? 28 : 4}
               tickMargin={8}
             />
             <YAxis
@@ -114,7 +163,8 @@ export function TrendChart({
               tick={{ fontSize: 11, fill: CHART_COLORS.axis }}
               tickFormatter={(v: number) => formatAxis(v, format)}
               width="auto"
-              domain={allZero ? [0, pctLike ? 0.01 : 1] : zeroBaseline ? [0, 'auto'] : ['auto', 'auto']}
+              domain={allZero ? [0, pctLike ? 0.01 : 10] : niceTicks ? [0, niceTicks[niceTicks.length - 1]] : zeroBaseline ? [0, 'auto'] : ['auto', 'auto']}
+              ticks={allZero ? (pctLike ? [0, 0.005, 0.01] : [0, 5, 10]) : niceTicks ?? undefined}
               allowDecimals={format === 'percent' || format === 'percent1' || format === 'decimal' || format === 'roas'}
             />
             {!empty && (
@@ -238,7 +288,7 @@ export function DeltaBadge({ cur, prev, invert }: { cur: number; prev: number | 
   return (
     <span className={cx('kc-delta', good === null ? 'kc-delta-flat' : good ? 'kc-delta-good' : 'kc-delta-bad')}>
       <Icon size={14} strokeWidth={2.2} aria-hidden />
-      {Math.round(Math.abs(ch.pct) * 100)}%
+      {Math.round(Math.abs(ch.pct) * 100).toLocaleString('en-US')}%
     </span>
   )
 }

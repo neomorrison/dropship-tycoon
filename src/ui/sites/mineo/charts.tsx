@@ -15,9 +15,12 @@ function DarkTip({ active, payload, label, unit }: { active?: boolean; payload?:
 }
 
 /** Area chart with a purple glow — Mineo's signature "ads over time" look. */
-export function GlowArea({ data, color = '#8b6cff', height = 200, unit = '' }: { data: Point[]; color?: string; height?: number; unit?: string }) {
+export function GlowArea({ data, color = '#8b6cff', height = 200, unit = '', emptyText = 'No data yet' }: {
+  data: Point[]; color?: string; height?: number; unit?: string; emptyText?: string
+}) {
   const id = useId().replace(/:/g, '')
-  if (!data.length) return <div className="mi-chart-empty" style={{ height }}>No data yet</div>
+  // a single point draws as a lone dot on an empty grid: wait for a real line
+  if (data.length < 3) return <div className="mi-chart-empty" style={{ height }}>{emptyText}</div>
   return (
     <div className="mi-chart" style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">

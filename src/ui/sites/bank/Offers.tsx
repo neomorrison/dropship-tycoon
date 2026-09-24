@@ -1,20 +1,18 @@
 // Chaise Bank — offers: Shopifly Capital (merchant cash advance) and credit-limit increase.
 import { useState } from 'react'
-import { BadgeDollarSign, CreditCard, TrendingUp } from 'lucide-react'
+import { BadgeDollarSign, TrendingUp } from 'lucide-react'
 import type { GameState } from '../../../core/types'
 import { formatDate } from '../../../core/time'
-import { CAPITAL_RULES, CARD_RULES, acceptCapital, activeCapital, capitalOffer, creditIncreaseEligibility, requestCreditIncrease } from '../../../sim/finance'
-import { cardInfo } from './bankData'
+import { CAPITAL_RULES, acceptCapital, activeCapital, capitalOffer } from '../../../sim/finance'
 import { Amount, Btn, FlashBar, KV, Meter, Notice, Panel } from './ui'
 import { SiteLayer } from './SiteLayer'
-import { run, safe, simRead, todayOf, useFlash, usd } from './lifeCommon'
+import { CreditIncreasePanel } from './CreditIncrease'
+import { pct1, run, safe, todayOf, useFlash, usd } from './lifeCommon'
 
 export function OffersPage({ s, navigate }: { s: GameState; navigate: (p: string) => void }) {
   const today = todayOf(s)
   const offer = safe(() => capitalOffer(s), null)
   const loan = safe(() => activeCapital(s), undefined)
-  const c = cardInfo(s)
-  const inc = simRead(s, st => creditIncreaseEligibility(st, today), { ok: false as boolean, reason: 'Unavailable right now.' as string | undefined })
   const [flash, setFlash] = useFlash(7000)
   const [confirm, setConfirm] = useState(false)
 
@@ -22,10 +20,6 @@ export function OffersPage({ s, navigate }: { s: GameState; navigate: (p: string
     setConfirm(false)
     const ok = run(st => acceptCapital(st))
     setFlash(ok ? { tone: 'success', text: 'Funds deposited to checking. Repayment starts with your next Shopifly payout.' } : { tone: 'critical', text: 'This offer is no longer available.' })
-  }
-  const increase = () => {
-    const r = run(st => requestCreditIncrease(st))
-    setFlash(r?.ok && r.newLimit ? { tone: 'success', text: `Approved — new limit ${usd(r.newLimit, false)}.` } : { tone: 'warning', text: r?.reason ?? 'Not approved.' })
   }
   const pastLoans = s.finance.loans.filter(l => l.remaining <= 0.005)
 
@@ -41,7 +35,7 @@ export function OffersPage({ s, navigate }: { s: GameState; navigate: (p: string
                 <div className="bk-offer-icon"><BadgeDollarSign size={26} /></div>
                 <div className="bk-offer-main">
                   <b>Active advance — {usd(loan.principal, false)}</b>
-                  <p>{Math.round(loan.withholdPct * 100)}% of each Shopifly payout goes to repayment until the total is repaid. No interest and no due date; the fee is fixed.</p>
+                  <p>{pct1(loan.withholdPct)} of each Shopifly payout goes to repayment until the total is repaid. No interest and no due date; the fee is fixed.</p>
                   <div className="bk-util is-wide">
                     <Meter value={(loan.repaid ?? 0) / Math.max(1, (loan.repaid ?? 0) + loan.remaining)} tone="ok" />
                     <span>{usd(loan.repaid ?? 0)} repaid · {usd(loan.remaining)} remaining</span>
@@ -59,7 +53,7 @@ export function OffersPage({ s, navigate }: { s: GameState; navigate: (p: string
                   <KV label="Advance" value={<Amount n={offer.amount} cents={false} />} />
                   <KV label="Fixed fee" value={<Amount n={offer.fee} />} sub={offer.feePct !== undefined ? `${(offer.feePct * 100).toFixed(1)}% of the advance, whatever the repayment speed` : undefined} />
                   <KV label="Total to repay" value={<Amount n={offer.total ?? offer.amount + offer.fee} />} strong />
-                  <KV label="Repayment" value={`${(offer.withholdPct * 100).toFixed(1)}% of each payout`} />
+                  <KV label="Repayment" value={`${pct1(offer.withholdPct)} of each payout`} />
                   <Notice tone="info">
                     A cash advance is cheaper than carrying a 28% APR card only if the extra money goes into ads and inventory that already make a profit. Borrowing to "fix" an unprofitable product just makes the loss bigger.
                   </Notice>
@@ -72,6 +66,7 @@ export function OffersPage({ s, navigate }: { s: GameState; navigate: (p: string
                 <div className="bk-offer-main">
                   <b>No offer yet</b>
                   <p>Shopifly Capital becomes available after {CAPITAL_RULES.minSalesDays} days of sales averaging at least {usd(CAPITAL_RULES.minAvgDaily, false)}/day. Offers are about {CAPITAL_RULES.amountMultiple}× your average daily revenue, with a {Math.round(CAPITAL_RULES.feePct[0] * 100)}–{Math.round(CAPITAL_RULES.feePct[1] * 100)}% flat fee.</p>
+                  <CapitalProgress s={s} today={today} />
                 </div>
               </div>
             )}
@@ -79,15 +74,7 @@ export function OffersPage({ s, navigate }: { s: GameState; navigate: (p: string
           </Panel>
         </div>
         <aside className="bk-col-side">
-          <Panel title="Credit limit increase">
-            <div className="bk-goal">
-              <CreditCard size={22} />
-              <div>
-                <p className="bk-fine" style={{ marginTop: 0 }}>Current limit {usd(c.limit, false)}. Requires {CARD_RULES.onTimeForIncrease} on-time statements in a row; the new limit depends on your last 60 days of income.</p>
-                {inc.ok ? <Btn small onClick={increase}>Request increase</Btn> : <p className="bk-muted">{inc.reason}</p>}
-              </div>
-            </div>
-          </Panel>
+          <CreditIncreasePanel s={s} setFlash={setFlash} />
           <Btn kind="link" onClick={() => navigate('card')}>Manage your card →</Btn>
         </aside>
       </div>
@@ -97,7 +84,7 @@ export function OffersPage({ s, navigate }: { s: GameState; navigate: (p: string
             <h3>Accept Shopifly Capital?</h3>
             <KV label="Deposited to checking" value={<Amount n={offer.amount} cents={false} />} />
             <KV label="Total you'll repay" value={<Amount n={offer.total ?? offer.amount + offer.fee} />} strong />
-            <KV label="Withheld from payouts" value={`${(offer.withholdPct * 100).toFixed(1)}%`} />
+            <KV label="Withheld from payouts" value={pct1(offer.withholdPct)} />
             <p className="bk-fine">Every payout will be smaller until it's repaid. Plan your ad billing around that.</p>
             <div className="bk-modal-actions">
               <Btn kind="secondary" onClick={() => setConfirm(false)}>Not now</Btn>
@@ -106,6 +93,32 @@ export function OffersPage({ s, navigate }: { s: GameState; navigate: (p: string
           </div>
         </SiteLayer>
       )}
+    </div>
+  )
+}
+
+/** How close the store is to a Shopifly Capital offer (same inputs as the sim's capitalOffer). */
+function CapitalProgress({ s, today }: { s: GameState; today: number }) {
+  if (!s.store?.created) return <p className="bk-muted">Open a Shopifly store to start building sales history.</p>
+  const daily = s.store.analytics?.daily ?? {}
+  let first = Infinity
+  for (const [d, sd] of Object.entries(daily)) if ((sd?.orders ?? 0) > 0) first = Math.min(first, Number(d))
+  const need = CAPITAL_RULES.minSalesDays
+  const days = Number.isFinite(first) ? Math.max(0, today - first) : 0
+  const window = Math.max(1, Math.min(need, days))
+  let rev = 0
+  for (let d = today - window; d < today; d++) rev += daily[d]?.totalSales ?? s.finance.pnl[d]?.revenue ?? 0
+  const avg = days > 0 ? rev / window : 0
+  return (
+    <div className="bk-progress-rows">
+      <div>
+        <span><span>Days of sales history</span><b>{Math.min(days, need)} / {need}</b></span>
+        <Meter value={days / need} tone={days >= need ? 'ok' : 'warn'} />
+      </div>
+      <div>
+        <span><span>Average daily sales{days > 0 && days < need ? ` (last ${window} days)` : ''}</span><b>{usd(avg, false)} / {usd(CAPITAL_RULES.minAvgDaily, false)}</b></span>
+        <Meter value={avg / CAPITAL_RULES.minAvgDaily} tone={avg >= CAPITAL_RULES.minAvgDaily ? 'ok' : 'warn'} />
+      </div>
     </div>
   )
 }

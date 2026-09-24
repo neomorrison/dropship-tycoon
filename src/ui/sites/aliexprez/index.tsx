@@ -1,7 +1,7 @@
 // AliExprez — AliExpress-style supplier marketplace. OWNER: ui-sourcing.
 // Routes: '' home · 'search?q=&cat=&sort=' · 'category/<niche>' · 'new' · 'wishlist'
 //         'item/<catalogId>[/reviews|/research|/description]' · 'orders[/store]' · 'business[/bulk|/inventory|/private-label]'
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { memo, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Boxes, ChevronDown, Factory, Heart, Lock, Package, Search, Truck } from 'lucide-react'
 import type { SiteProps } from '../types'
 import { useGS } from '../../../core/store'
@@ -43,6 +43,11 @@ function Header({ path, navigate }: { path: string; navigate: (p: string) => voi
     navigate(withQuery('search', { q: q.trim() }))
   }
   const first = (name || 'there').split(' ')[0]
+  // which category-bar link matches the current page (highlighted like the live site)
+  const activeCat = route.page === 'new' ? 'new'
+    : route.page === 'business' ? 'business'
+      : route.page === 'search' ? (route.q.get('cat') ?? (route.q.get('choice') === '1' ? 'choice' : null))
+        : null
   return (
     <header className="ax-header">
       <div className="ax-topbar">
@@ -84,12 +89,12 @@ function Header({ path, navigate }: { path: string; navigate: (p: string) => voi
           <button type="button" className="ax-allcats" onClick={() => navigate('search')}><Boxes size={16} /> All categories <ChevronDown size={14} /></button>
           <div className="ax-catlinks">
             <button type="button" className="ax-catlink ax-catlink-hot" onClick={() => navigate(withQuery('search', { sort: 'orders' }))}>SuperDeals</button>
-            <button type="button" className="ax-catlink" onClick={() => navigate('new')}>New arrivals</button>
-            <button type="button" className="ax-catlink" onClick={() => navigate(withQuery('search', { choice: true }))}>Choice</button>
+            <button type="button" className={cx('ax-catlink', activeCat === 'new' && 'ax-catlink-on')} onClick={() => navigate('new')}>New arrivals</button>
+            <button type="button" className={cx('ax-catlink', activeCat === 'choice' && 'ax-catlink-on')} onClick={() => navigate(withQuery('search', { choice: true }))}>Choice</button>
             {NICHES.slice(0, 8).map(n => (
-              <button key={n.id} type="button" className="ax-catlink" onClick={() => navigate(`category/${n.id}`)}>{n.short}</button>
+              <button key={n.id} type="button" className={cx('ax-catlink', activeCat === n.id && 'ax-catlink-on')} onClick={() => navigate(`category/${n.id}`)}>{n.short}</button>
             ))}
-            <button type="button" className="ax-catlink" onClick={() => navigate('business')}><Truck size={14} /> Dropshipping center</button>
+            <button type="button" className={cx('ax-catlink', activeCat === 'business' && 'ax-catlink-on')} onClick={() => navigate('business')}><Truck size={14} /> Dropshipping center</button>
           </div>
         </div>
       </div>
@@ -127,7 +132,7 @@ function Footer({ navigate }: { navigate: (p: string) => void }) {
   )
 }
 
-export default function AliExprez({ path, navigate, compact }: SiteProps) {
+function AliExprez({ path, navigate, compact }: SiteProps) {
   const route = useMemo(() => parseRoute(path), [path])
   let page
   switch (route.page) {
@@ -147,3 +152,7 @@ export default function AliExprez({ path, navigate, compact }: SiteProps) {
     </div>
   )
 }
+
+// memo: the browser shell re-renders open tabs on every game tick; the site subscribes to the
+// state it needs itself, so only a new path / compact flag should re-render the whole page
+export default memo(AliExprez)

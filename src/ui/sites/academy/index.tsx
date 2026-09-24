@@ -288,7 +288,7 @@ function StudyButton({ s, skill, onDone }: { s: GameState; skill: SkillId; onDon
       <button className="ac-btn is-gold" disabled={!chk.ok || p.max} onClick={study}>
         <Clock size={15} /> {p.max ? 'Max level' : `Study session · ${durationLabel(mins)} · +60 XP`}
       </button>
-      {st.now ? <span className="ac-study-note is-live">Studying now — {durationLabel(st.now.remainingMin)} left</span>
+      {st.now ? <span className="ac-study-note is-live">Studying now — {durationLabel(st.now.remainingMin)} left{st.queued > 1 ? ` · ${st.queued - 1} more queued` : ''}</span>
         : st.queued > 0 ? <span className="ac-study-note">{st.queued} session{st.queued === 1 ? '' : 's'} in your queue</span>
           : !chk.ok && chk.reason ? <span className="ac-study-note">{chk.reason}</span> : null}
     </div>

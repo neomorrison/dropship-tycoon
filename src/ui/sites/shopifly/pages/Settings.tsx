@@ -14,10 +14,10 @@ import {
   buyDomain, changePlan, domainQuote, generatePolicy, PAYMENT_LABELS, PLAN_LABEL, storePlanFees, storeRange, updateStoreSettings,
 } from '../../../../sim/store'
 import {
-  Badge, Banner, BlockStack, Box, Button, Card, Checkbox, ChoiceList, ContextualSaveBar, Divider, Icon, InlineGrid, InlineStack,
+  Badge, Banner, BlockStack, Box, Button, Card, Checkbox, ChoiceList, Divider, Icon, InlineGrid, InlineStack,
   Modal, Page, Text, TextField,
 } from '../../../kit/polaris'
-import { useFlash } from '../merch/shared'
+import { AdminSaveBar, useFlash, useLeaveGuard } from '../merch/shared'
 import '../merch/merch.css'
 
 const NAV = [
@@ -37,7 +37,7 @@ export default function Settings({ params, navigate }: ShopiflyPageProps) {
     <div className="sf-mx-page">
       <Page title="Settings">
         <div className="sf-mx-settings">
-          <nav className="sf-mx-settings-nav" aria-label="Settings">
+          <nav className="sf-mx-settings-nav sf-mx-guarded-nav" aria-label="Settings">
             {NAV.map(n => (
               <button key={n.key} type="button" className={`sf-mx-settings-link${n.key === key ? ' is-on' : ''}`} onClick={() => navigate(`settings/${n.key}`)}>
                 <Icon source={n.icon} size={18} tone={n.key === key ? 'base' : 'subdued'} />
@@ -76,14 +76,26 @@ function GeneralSettings() {
   const [name, setName] = useState(st.name)
   const [flash, showFlash] = useFlash()
   const dirty = name.trim() !== st.name
+  const { modal: leaveModal } = useLeaveGuard(dirty)
+  const saveName = () => {
+    act(s => {
+      const old = s.store.name
+      // the storefront header shows the logo text; keep it in step unless it was customized
+      const followName = !s.store.theme.logoText.trim() || s.store.theme.logoText === old
+      updateStoreSettings(s, followName ? { name, theme: { ...s.store.theme, logoText: name.trim().slice(0, 60) } } : { name })
+    })
+    setName(getGS().store.name)
+    showFlash('Store details saved')
+  }
   return (
     <>
-      <ContextualSaveBar
+      <AdminSaveBar
         visible={dirty}
         message="Unsaved changes"
-        saveAction={{ onAction: () => { act(s => updateStoreSettings(s, { name })); setName(getGS().store.name); showFlash('Store details saved') }, disabled: !name.trim() }}
+        saveAction={{ onAction: saveName, disabled: !name.trim() }}
         discardAction={{ onAction: () => setName(st.name) }}
       />
+      {leaveModal}
       <Card title="Store details">
         <BlockStack gap="400">
           <TextField label="Store name" value={name} onChange={setName} maxLength={60} helpText="Shown on your storefront, emails and checkout." error={!name.trim() ? 'Store name can\'t be blank' : undefined} />
@@ -211,17 +223,19 @@ function PaymentSettings({ navigate }: { navigate: (p: string) => void }) {
   const [pm, setPm] = useState(st.payments)
   const [flash, showFlash] = useFlash()
   const dirty = JSON.stringify(pm) !== JSON.stringify(st.payments)
+  const { guard, modal: leaveModal } = useLeaveGuard(dirty)
   const hasKlarno = st.apps.some(a => a.appId === 'klarno')
   const fees = storePlanFees(s)
   const dif = DIFFICULTY[s.meta.difficulty]
   return (
     <>
-      <ContextualSaveBar
+      <AdminSaveBar
         visible={dirty}
         message="Unsaved changes"
         saveAction={{ onAction: () => { act(g => updateStoreSettings(g, { payments: pm })); setPm(getGS().store.payments); showFlash('Payment settings saved') } }}
         discardAction={{ onAction: () => setPm(st.payments) }}
       />
+      {leaveModal}
       <Card title="Shopifly Payments" actions={<Badge tone="success">Active</Badge>}>
         <BlockStack gap="300">
           <Text as="p" tone="subdued">Accept all major credit and debit cards. Money from sales lands in your Chaise Bank account on your payout schedule.</Text>
@@ -255,7 +269,7 @@ function PaymentSettings({ navigate }: { navigate: (p: string) => void }) {
             {!hasKlarno && (
               <InlineStack gap="200" blockAlign="center">
                 <Text as="span" tone="subdued" variant="bodySm">Requires the Klarno app.</Text>
-                <Button variant="plain" onClick={() => navigate('apps/klarno')}>Get Klarno</Button>
+                <Button variant="plain" onClick={() => guard(() => navigate('apps/klarno'))}>Get Klarno</Button>
               </InlineStack>
             )}
           </BlockStack>
@@ -279,6 +293,7 @@ function ShippingSettings({ navigate }: { navigate: (p: string) => void }) {
   const [f, setF] = useState(init)
   const [flash, showFlash] = useFlash()
   const dirty = JSON.stringify(f) !== JSON.stringify(init)
+  const { guard, modal: leaveModal } = useLeaveGuard(dirty)
   const flat = Number(f.flat)
   const over = Number(f.over)
   const err = f.mode !== 'free' && !(flat >= 0) ? 'Enter a rate' : f.mode === 'threshold' && !(over > 0) ? 'Enter a minimum order amount' : null
@@ -291,7 +306,8 @@ function ShippingSettings({ navigate }: { navigate: (p: string) => void }) {
   }
   return (
     <>
-      <ContextualSaveBar visible={dirty} message="Unsaved changes" saveAction={{ onAction: save }} discardAction={{ onAction: () => setF(init) }} />
+      <AdminSaveBar visible={dirty} message="Unsaved changes" saveAction={{ onAction: save }} discardAction={{ onAction: () => setF(init) }} />
+      {leaveModal}
       <Card title="Shipping rates · United States">
         <BlockStack gap="300">
           <ChoiceList
@@ -328,7 +344,7 @@ function ShippingSettings({ navigate }: { navigate: (p: string) => void }) {
       <Card title="Delivery estimates">
         <BlockStack gap="200">
           <Text as="p" tone="subdued">Delivery windows are shown per product. Set them in each product&apos;s Shipping card or with the Shipping &amp; delivery section in the theme editor.</Text>
-          <div><Button onClick={() => navigate('products')}>Go to products</Button></div>
+          <div><Button onClick={() => guard(() => navigate('products'))}>Go to products</Button></div>
         </BlockStack>
       </Card>
       {flash}
@@ -446,17 +462,21 @@ function PolicySettings() {
   const [templated, setTemplated] = useState<string[]>([])
   const [flash, showFlash] = useFlash()
   const dirty = JSON.stringify(f) !== JSON.stringify(policies)
-  const missing = POLICY_FIELDS.filter(p => !policies[p.key].trim()).length
+  const { modal: leaveModal } = useLeaveGuard(dirty)
+  // same bar the page grader uses: 80+ characters (20+ for contact details)
+  const tooShort = (k: keyof StoreState['policies'], v: string) => v.trim().length < (k === 'contact' ? 20 : 80)
+  const missing = POLICY_FIELDS.filter(p => tooShort(p.key, policies[p.key])).length
   return (
     <>
-      <ContextualSaveBar
+      <AdminSaveBar
         visible={dirty}
         message="Unsaved changes"
         saveAction={{ onAction: () => { act(g => updateStoreSettings(g, { policies: f })); setTemplated([]); showFlash('Policies saved') } }}
         discardAction={{ onAction: () => { setF(policies); setTemplated([]) } }}
       />
+      {leaveModal}
       {missing > 0 && (
-        <Banner tone="warning" title={`${missing} polic${missing === 1 ? 'y is' : 'ies are'} missing`}>
+        <Banner tone="warning" title={`${missing} polic${missing === 1 ? 'y is' : 'ies are'} missing or too short`}>
           Stores without policies look untrustworthy to shoppers, and payment providers expect them.
         </Banner>
       )}
@@ -468,6 +488,9 @@ function PolicySettings() {
         >
           <BlockStack gap="200">
             <TextField label={p.label} labelHidden multiline={p.key === 'contact' ? 3 : 6} maxHeight={360} value={f[p.key]} onChange={v => setF(x => ({ ...x, [p.key]: v }))} helpText={p.help} />
+            {f[p.key].trim() !== '' && tooShort(p.key, f[p.key]) && (
+              <Text as="p" tone="caution" variant="bodySm">Too short to reassure shoppers. Spell out the details, or start from the template.</Text>
+            )}
             {templated.includes(p.key) && (
               <Text as="p" tone="caution" variant="bodySm">Review the template before saving: it makes promises (returns, delivery times) you have to keep.</Text>
             )}

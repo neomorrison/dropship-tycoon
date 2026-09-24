@@ -37,7 +37,8 @@ export default function EventsManager({ s }: { s: GameState }) {
       out.push({
         day: d,
         v: {
-          PageView: sd?.sessions ?? 0,
+          // every landing counts, plus the cart, checkout and thank-you pages buyers load afterwards
+          PageView: sd ? sd.sessions + sd.atc + sd.checkout + sd.orders : 0,
           ViewContent: sd ? vc || sd.sessions : 0,
           AddToCart: sd?.atc ?? 0,
           InitiateCheckout: sd?.checkout ?? 0,

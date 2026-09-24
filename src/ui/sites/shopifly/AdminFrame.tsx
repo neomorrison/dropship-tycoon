@@ -296,7 +296,7 @@ function NavButton({ icon: I, glyph, label, badge, active, section, onClick, ext
     >
       <span className="sf-nav-icon">
         {I ? <I size={18} strokeWidth={section ? 2.1 : 1.8} /> : glyph ? (
-          <span className="sf-nav-glyph" style={{ background: glyph.bg, color: glyph.fg ?? '#fff' }}>{glyph.text}</span>
+          <span className="sf-nav-glyph" aria-hidden style={{ background: glyph.bg, color: glyph.fg ?? '#fff' }}>{glyph.text}</span>
         ) : <Package size={18} />}
       </span>
       <span className="sf-nav-label">{label}</span>
@@ -530,7 +530,7 @@ function StoreMenu({ navigate, compact }: { navigate: (p: string) => void; compa
     name: s.store.name, domain: s.store.subdomain, custom: s.store.customDomain, plan: s.store.plan, player: s.player.name,
   }))
   const color = tileColor(name || 'Store')
-  const ini = (name || 'S').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]?.toUpperCase()).join('')
+  const ini = (name || 'S').split(/\s+/).filter(w => /^[\p{L}\p{N}]/u.test(w)).slice(0, 2).map(w => w[0].toUpperCase()).join('') || 'S'
   const item = (label: string, onClick: () => void, sub?: string) => (
     <button type="button" className="sf-menu-item" onClick={() => { setOpen(false); onClick() }}>
       <span>{label}</span>

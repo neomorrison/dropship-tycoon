@@ -246,10 +246,10 @@ function Sourcing({ navigate }: { navigate: (p: string) => void }) {
           <tbody>
             {rows.map(r => (
               <tr key={r.id}>
-                <td className="ax-td-prod">
+                <td className="ax-td-prod"><div className="ax-td-prod-in">
                   <span className="ax-td-img"><ProductShot p={r.p} variant={0} /></span>
                   <button type="button" className="ax-link-plain" onClick={() => navigate(`item/${r.id}`)}>{r.p.name}</button>
-                </td>
+                </div></td>
                 <td>{r.orders30.toLocaleString('en-US')}</td>
                 <td><CostCell f={r.ali} /></td>
                 <td>
@@ -266,8 +266,8 @@ function Sourcing({ navigate }: { navigate: (p: string) => void }) {
                   <select className="ax-select" value={r.configured} onChange={e => setMode(r.id, e.target.value as FulfillmentMode)} aria-label={`Fulfillment for ${r.p.name}`}>
                     <option value="dropship">{MODE_LABEL.dropship}</option>
                     <option value="agent" disabled={!unlocks.agent}>{MODE_LABEL.agent}{r.quoted ? '' : ' (requests a quote)'}</option>
-                    <option value="bulk" disabled={!r.hasStock}>{MODE_LABEL.bulk}{r.hasStock ? '' : ' — place a bulk order first'}</option>
-                    <option value="private_label" disabled={!unlocks.privateLabel || !r.hasPl}>{MODE_LABEL.private_label}{unlocks.privateLabel ? (r.hasPl ? '' : ' — order branded stock first') : ' — locked'}</option>
+                    <option value="bulk" disabled={!r.hasStock && r.configured !== 'bulk'}>{MODE_LABEL.bulk}{r.hasStock ? '' : r.configured === 'bulk' ? ' (out of stock)' : ' — place a bulk order first'}</option>
+                    <option value="private_label" disabled={(!unlocks.privateLabel || !r.hasPl) && r.configured !== 'private_label'}>{MODE_LABEL.private_label}{unlocks.privateLabel ? (r.hasPl ? '' : r.configured === 'private_label' ? ' (out of stock)' : ' — order branded stock first') : ' — locked'}</option>
                   </select>
                   <div className="ax-small ax-muted">{usd(r.cur.unitCost + r.cur.shipCost)} landed · {r.cur.shipDays[0]}–{r.cur.shipDays[1]} days{!r.cur.inStock ? ' · OUT OF STOCK, using AliExprez' : ''}</div>
                 </td>
@@ -348,7 +348,7 @@ function BulkForm({ initialProduct, initialKind, lockKind, navigate }: {
     const threePl = whatIf(s, p.id, kind === 'bulk' ? 'bulk' : 'private_label')
     const ali = whatIf(s, p.id, 'dropship')
     return { perDay, quotes, threePlShip: threePl.shipCost, threePlDays: threePl.shipDays, ali }
-  }, [p, qty, kind, sales, events, staff, inventory])
+  }, [p, qty, kind, sales, events, staff, inventory, today])
 
   if (!ids.length || !p || !calc) {
     return (
@@ -458,7 +458,7 @@ function BulkForm({ initialProduct, initialKind, lockKind, navigate }: {
             <div><span>Per order via AliExprez</span><b>{usd(perOrderAli)}</b><em>{calc.ali.shipDays[0]}–{calc.ali.shipDays[1]} days</em></div>
           </div>
           <div className="ax-eta">
-            <div><Factory size={14} /> Production {qte.productionDays[0]}–{qte.productionDays[1]} days · done ~{formatDate(qte.expectedShipDay, 'md')}</div>
+            <div><Factory size={14} /> Production {qte.productionDays[0]}–{qte.productionDays[1]} days{qte.expectedShipDay - today > qte.productionDays[1] ? ' + Spring Festival closure' : ''} · done ~{formatDate(qte.expectedShipDay, 'md')}</div>
             <div>{method === 'sea' ? <Ship size={14} /> : <Plane size={14} />} At {THREE_PL} ~{formatDate(qte.expectedArriveDay, 'md')}</div>
             {coverDays !== null && <div><Warehouse size={14} /> Stock after arrival covers ≈ {Math.round(coverDays)} days of sales</div>}
             <div className="ax-muted ax-small">Storage {usd(BENCHMARKS.shipping.threePlStoragePerUnitMonth)}/unit/month → ≈ {usd(qty * BENCHMARKS.shipping.threePlStoragePerUnitMonth)}/month at full stock.</div>
@@ -510,10 +510,10 @@ function PurchaseOrders({ navigate }: { navigate: (p: string) => void }) {
               return (
                 <tr key={o.id}>
                   <td className="ax-mono">PO-{10000 + (hash32(o.id, 'po') % 90000)}</td>
-                  <td className="ax-td-prod">
+                  <td className="ax-td-prod"><div className="ax-td-prod-in">
                     {p && <span className="ax-td-img"><ProductShot p={p} variant={0} /></span>}
                     <span><button type="button" className="ax-link-plain" onClick={() => navigate(`item/${o.catalogId}`)}>{p?.name ?? o.catalogId}</button>{o.brandName && <div className="ax-small"><Sparkles size={11} /> {o.brandName}</div>}</span>
-                  </td>
+                  </div></td>
                   <td>{o.qty.toLocaleString('en-US')}</td>
                   <td>{o.method === 'sea' ? <><Ship size={14} /> Sea</> : <><Plane size={14} /> Air</>}</td>
                   <td>{formatDate(o.orderedDay, 'md')}</td>
@@ -583,7 +583,7 @@ function Inventory({ navigate }: { navigate: (p: string) => void }) {
                   const runsOut = r.cover !== null ? today + Math.floor(r.cover) : null
                   return (
                     <tr key={r.id} className={cx(out && 'ax-row-bad')}>
-                      <td className="ax-td-prod">{r.p && <span className="ax-td-img"><ProductShot p={r.p} variant={0} /></span>}<span>{r.p?.name ?? r.id}{sourcing[r.id]?.brandName && <div className="ax-small"><Sparkles size={11} /> {sourcing[r.id]?.brandName}</div>}</span></td>
+                      <td className="ax-td-prod"><div className="ax-td-prod-in">{r.p && <span className="ax-td-img"><ProductShot p={r.p} variant={0} /></span>}<span>{r.p?.name ?? r.id}{sourcing[r.id]?.brandName && <div className="ax-small"><Sparkles size={11} /> {sourcing[r.id]?.brandName}</div>}</span></div></td>
                       <td><b className={cx(out && 'ax-red')}>{r.inv.units.toLocaleString('en-US')}</b></td>
                       <td>{r.incomingUnits ? <>{r.incomingUnits.toLocaleString('en-US')}<div className="ax-muted ax-small">~{formatDate(r.nextArrival!, 'md')}</div></> : '—'}</td>
                       <td>{r.inv.units ? usd(r.inv.avgCost) : '—'}</td>
@@ -593,7 +593,7 @@ function Inventory({ navigate }: { navigate: (p: string) => void }) {
                         {runsOut !== null && r.inv.units > 0 && <div className="ax-muted ax-small">Runs out ~{formatDate(runsOut, 'md')}</div>}
                       </td>
                       <td>{MODE_LABEL[r.mode]}{out && <div className="ax-small ax-red">Falling back to AliExprez</div>}</td>
-                      <td><button type="button" className="ax-btn ax-btn-outline ax-btn-sm" onClick={() => navigate(`business/bulk?product=${r.id}`)}>Reorder <ArrowRight size={13} /></button></td>
+                      <td><button type="button" className="ax-btn ax-btn-outline ax-btn-sm" onClick={() => navigate(r.mode === 'private_label' ? `business/private-label?product=${r.id}` : `business/bulk?product=${r.id}`)}>Reorder <ArrowRight size={13} /></button></td>
                     </tr>
                   )
                 })}

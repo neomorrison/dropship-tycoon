@@ -57,16 +57,55 @@ export function togglePause() {
   setSpeed(st.speed === 0 ? st.lastSpeed : 0)
 }
 
+// ---- unsaved-changes guards --------------------------------------------------
+// A page with a dirty form (product editor, theme editor, settings…) registers a guard for its tab
+// while it's visible; browser-chrome navigation (back/forward/reload/URL bar/close) and deep links
+// that would replace that page go through it, so the page can ask "Leave page with unsaved changes?".
+type LeaveGuard = (go: () => void) => void
+const leaveGuards = new Map<string, LeaveGuard[]>()
+/** Register a leave guard for a tab; returns the unregister function. */
+export function registerLeaveGuard(tabId: string, guard: LeaveGuard): () => void {
+  const list = leaveGuards.get(tabId) ?? []
+  list.push(guard)
+  leaveGuards.set(tabId, list)
+  return () => {
+    const l = leaveGuards.get(tabId)
+    if (!l) return
+    const i = l.lastIndexOf(guard)
+    if (i >= 0) l.splice(i, 1)
+    if (!l.length) leaveGuards.delete(tabId)
+  }
+}
+/** Run a navigation that would leave this tab's page, through its unsaved-changes prompt if it has one. */
+export function guardTabNav(tabId: string, go: () => void): void {
+  const l = leaveGuards.get(tabId)
+  const g = l?.[l.length - 1]
+  if (g) g(go)
+  else go()
+}
+
 /** Open a site in the in-game browser (reuses an existing tab for that site). */
 export function openSite(site: SiteId, path = '', opts: { newTab?: boolean } = {}) {
   const st = ui()
   const existing = !opts.newTab && st.tabs.find(t => t.site === site)
   if (existing) {
-    const tabs = st.tabs.map(t => (t.id === existing.id ? { ...t, back: path !== t.path ? [...t.back, t.path] : t.back, forward: [], path } : t))
-    st.set({ tabs, activeTab: existing.id, computerOpen: true })
+    const go = () => {
+      const cur = ui()
+      const tabs = cur.tabs.map(t => (t.id === existing.id ? { ...t, back: path !== t.path ? [...t.back, t.path] : t.back, forward: [], path } : t))
+      cur.set({ tabs, activeTab: existing.id, computerOpen: true })
+    }
+    if (path !== existing.path && leaveGuards.has(existing.id)) {
+      // show the page first so its "unsaved changes" prompt is visible, then ask
+      st.set({ activeTab: existing.id, computerOpen: true })
+      guardTabNav(existing.id, go)
+      return
+    }
+    go()
     return
   }
-  const id = `tab${++tabSeq}`
+  // tabs restored from a previous session (core/session) keep their ids: never reuse one
+  let id = `tab${++tabSeq}`
+  while (st.tabs.some(t => t.id === id)) id = `tab${++tabSeq}`
   st.set({ tabs: [...st.tabs, { id, site, path, back: [], forward: [] }], activeTab: id, computerOpen: true })
 }
 export function navigateTab(tabId: string, path: string) {

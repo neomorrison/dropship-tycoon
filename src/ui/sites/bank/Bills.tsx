@@ -23,6 +23,14 @@ export function BillsPage({ s, navigate }: { s: GameState; navigate: (p: string)
     <div className="bk-page">
       <h1 className="bk-h1">Bills & autopay</h1>
       <p className="bk-lede">Everything that drafts automatically. Payments from checking need the cash there on the due date; card-billed subscriptions add to your Sapphire balance.</p>
+      {/* the card's own autopay lives on the card page: say so here, where people look for "autopay" */}
+      <Notice
+        tone={s.finance.card.autopay === 'full' ? 'success' : 'info'}
+        title={`Sapphire card autopay: ${s.finance.card.autopay === 'full' ? 'statement balance' : s.finance.card.autopay === 'min' ? 'minimum payment only' : 'off'}`}
+        action={<Btn kind="secondary" small onClick={() => navigate('card')}>Change</Btn>}
+      >
+        {s.finance.card.autopay === 'full' ? 'Your statement is paid in full from checking each month, so you pay no interest.' : 'Paying only the minimum (or nothing) means interest on your whole balance. Set it to the statement balance on the card page.'}
+      </Notice>
       {arrears.map(b => (
         <Notice key={b.id} tone="critical" title={`${b.name} — ${usd(b.arrears ?? 0)} past due`}>
           {b.failedSince !== null && b.failedSince !== undefined ? `Declined since ${formatDate(b.failedSince, 'md')}. ` : ''}

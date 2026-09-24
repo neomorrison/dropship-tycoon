@@ -59,9 +59,30 @@ export function TargetingEditor({ s, value, onChange, locked }: TargetingEditorP
   }
   const bucketOn = (b: typeof AGE_BUCKETS[number]) => value.ageMin <= b.from && value.ageMax >= b.to
   const toggleBucket = (b: typeof AGE_BUCKETS[number]) => {
-    const on = AGE_BUCKETS.filter(x => (x === b ? !bucketOn(x) : bucketOn(x)))
-    if (!on.length) { set({ ageMin: 18, ageMax: 65 }); return }
-    set({ ageMin: Math.min(...on.map(x => x.from)), ageMax: Math.max(...on.map(x => x.to)) })
+    // from "All", picking an age group narrows to just that group (like TikTok's age chips)
+    if (allAges) { set({ ageMin: b.from, ageMax: b.to }); return }
+    const idx = AGE_BUCKETS.indexOf(b)
+    const onIdx = AGE_BUCKETS.map((x, i) => (bucketOn(x) ? i : -1)).filter(i => i >= 0)
+    const lo = Math.min(...onIdx)
+    const hi = Math.max(...onIdx)
+    let from = lo
+    let to = hi
+    if (!bucketOn(b)) {
+      // adding a group: the range stays continuous, so groups in between are included
+      from = Math.min(lo, idx)
+      to = Math.max(hi, idx)
+    } else if (idx === lo && idx === hi) {
+      // removing the only group: back to all ages
+      set({ ageMin: 18, ageMax: 65 })
+      return
+    } else if (idx === lo) from = lo + 1
+    else if (idx === hi) to = hi - 1
+    else {
+      // a group in the middle can't leave a gap: drop it together with the shorter side
+      if (idx - lo <= hi - idx) from = idx + 1
+      else to = idx - 1
+    }
+    set({ ageMin: AGE_BUCKETS[from].from, ageMax: AGE_BUCKETS[to].to })
   }
   const toggleInterest = (name: string) => {
     const has = value.interests.includes(name)

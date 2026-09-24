@@ -1,17 +1,19 @@
 // Computer overlay: a Chrome-like browser window at home, a phone when away (or on narrow
 // screens). Every tab renders its site inside Suspense + its own error boundary, and hidden
 // tabs are parked in <Activity mode="hidden"> so they keep their state without re-rendering.
-import { Activity, Component, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ErrorInfo, type FormEvent, type ReactNode } from 'react'
+import { Activity, Component, Suspense, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type ErrorInfo, type FormEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { ArrowLeft, ArrowRight, BatteryMedium, Bookmark, ChevronLeft, ChevronRight, House, Lock, Plus, RotateCw, Search, Signal, Star, Wifi, X, Layers, Maximize2, Minimize2 } from 'lucide-react'
 import type { SiteId } from '../../core/types'
 import { useGS } from '../../core/store'
-import { useUI, closeTab, navigateTab, openSite, tabBack, tabForward, type BrowserTab } from '../../core/ui'
+import { useUI, closeTab, guardTabNav, navigateTab, openSite, tabBack, tabForward, type BrowserTab } from '../../core/ui'
 import { formatClock, formatDate, dayOf, hourOfDay } from '../../core/time'
 import { SITES, SITE_COMPONENTS, siteDef } from '../sites/registry'
+import type { SiteProps } from '../sites/types'
 import { sfx } from '../audio'
 import { SiteChip, useViewportWidth, PHONE_BREAKPOINT } from './common'
-import { setComputerOpen } from './actions'
+import { cancelAct, setComputerOpen } from './actions'
+import { CoachDock } from './CoachBubble'
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -110,9 +112,47 @@ function SiteLoading({ site }: { site: SiteId }) {
   )
 }
 
+/**
+ * Autopilot can put the character to bed while the browser is open. Nights only fast-forward in the
+ * room view (core/engine), so say what's going on and offer the way out either way.
+ */
+function SleepNote({ variant }: { variant: 'desktop' | 'phone' }) {
+  const sleep = useGS(s => (s.player.activity?.kind === 'sleep' ? s.player.activity : null))
+  if (!sleep) return null
+  const forced = !!sleep.payload?.forced
+  return (
+    <div className={clsx('sh-sleepnote', `is-${variant}`)} role="status">
+      <span className="sh-sleepnote-emoji" aria-hidden>
+        {forced ? '😵' : '💤'}
+      </span>
+      <span className="sh-sleepnote-text">
+        <b>{forced ? 'You passed out.' : "You're asleep."}</b> Time runs at normal speed while the browser is open; close it to sleep 4× faster.
+      </span>
+      <span className="sh-sleepnote-btns">
+        {!forced && (
+          <button type="button" className="sh-sleepnote-btn" onClick={() => cancelAct(sleep.id)}>
+            Wake up
+          </button>
+        )}
+        <button type="button" className="sh-sleepnote-btn is-quiet" onClick={() => setComputerOpen(false)}>
+          Close
+        </button>
+      </span>
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Tab content
 // ---------------------------------------------------------------------------
+/**
+ * The site element, memoized on its own props: the browser chrome re-renders every game tick (clock,
+ * tabs), but a site only needs to when its route changes. Sites subscribe to the game state they show.
+ */
+const SiteHost = memo(function SiteHost({ Site, ...props }: SiteProps & { Site: ComponentType<SiteProps> }) {
+  return <Site {...props} />
+})
+
 function TabView({ tab, compact, reload, onReload }: { tab: BrowserTab; compact: boolean; reload: number; onReload: () => void }) {
   const Site = SITE_COMPONENTS[tab.site]
   const navigate = useCallback((p: string) => navigateTab(tab.id, p), [tab.id])
@@ -127,10 +167,10 @@ function TabView({ tab, compact, reload, onReload }: { tab: BrowserTab; compact:
     if (ref.current) ref.current.scrollTop = 0
   }, [tab.path])
   return (
-    <div ref={ref} className="sh-tabview" data-site={tab.site}>
+    <div ref={ref} className="sh-tabview" data-site={tab.site} data-tab-id={tab.id}>
       <SiteErrorBoundary key={`${tab.id}:${reload}`} site={tab.site} resetKey={tab.path} onReload={onReload} onClose={close}>
         <Suspense fallback={<SiteLoading site={tab.site} />}>
-          {Site ? <Site tabId={tab.id} path={tab.path} navigate={navigate} compact={compact} /> : null}
+          {Site ? <SiteHost Site={Site} tabId={tab.id} path={tab.path} navigate={navigate} compact={compact} /> : null}
         </Suspense>
       </SiteErrorBoundary>
     </div>
@@ -160,6 +200,7 @@ function useLauncherSites() {
 function NewTabPage({ onOpen }: { onOpen: (site: SiteId, path?: string) => void }) {
   const name = useGS(s => s.player.name || s.meta.playerName)
   const hour = useGS(s => s.time.hour)
+  const step = useUI(u => Math.floor(u.hourFrac * 6))
   const storeCreated = useGS(s => s.store.created)
   const storeDomain = useStoreDomain()
   const sites = useLauncherSites()
@@ -186,7 +227,7 @@ function NewTabPage({ onOpen }: { onOpen: (site: SiteId, path?: string) => void 
         {greeting(hourOfDay(hour))}, {name}
       </div>
       <div className="sh-newtab-sub">
-        {formatDate(dayOf(hour), 'long')} · {formatClock(hour)}
+        {formatDate(dayOf(hour), 'long')} · {formatClock(hour, step / 6)}
       </div>
       <form className={clsx('sh-newtab-search', miss && 'is-miss')} onSubmit={submit}>
         <Search size={18} />
@@ -290,8 +331,10 @@ function useBrowserModel() {
   }
   const showStart = startPage || !active
   const reload = useCallback((id: string) => {
-    setReloads(r => ({ ...r, [id]: (r[id] ?? 0) + 1 }))
-    sfx.click()
+    guardTabNav(id, () => {
+      setReloads(r => ({ ...r, [id]: (r[id] ?? 0) + 1 }))
+      sfx.click()
+    })
   }, [])
   const openFromStart = useCallback((site: SiteId, path = '') => {
     setStartPage(false)
@@ -303,8 +346,10 @@ function useBrowserModel() {
     useUI.getState().set({ activeTab: id })
   }, [])
   const close = useCallback((id: string) => {
-    closeTab(id)
-    sfx.click()
+    guardTabNav(id, () => {
+      closeTab(id)
+      sfx.click()
+    })
   }, [])
   return { tabs, active, activeTab, reloads, reload, showStart, setStartPage, openFromStart, select, close }
 }
@@ -400,6 +445,8 @@ function DesktopBrowser() {
         ))}
       </div>
 
+      <SleepNote variant="desktop" />
+
       <div className="sh-viewport">
         <TabViews tabs={m.tabs} activeId={m.showStart ? null : m.activeTab} compact={false} reloads={m.reloads} reload={m.reload} />
         {m.showStart && <NewTabPage onOpen={m.openFromStart} />}
@@ -425,7 +472,7 @@ function Toolbar({ active, storeDomain, storeCreated, onReload, loadKey }: { act
       window.setTimeout(() => setMiss(null), 2400)
       return
     }
-    if (active && hit.site === active.site) navigateTab(active.id, hit.path)
+    if (active && hit.site === active.site) guardTabNav(active.id, () => navigateTab(active.id, hit.path))
     else openSite(hit.site, hit.path)
     setDraft(null)
     inputRef.current?.blur()
@@ -433,10 +480,10 @@ function Toolbar({ active, storeDomain, storeCreated, onReload, loadKey }: { act
 
   return (
     <div className="sh-toolbar">
-      <button type="button" className="sh-nav-btn" disabled={!active?.back.length} onClick={() => active && tabBack(active.id)} aria-label="Back" title="Back">
+      <button type="button" className="sh-nav-btn" disabled={!active?.back.length} onClick={() => active && guardTabNav(active.id, () => tabBack(active.id))} aria-label="Back" title="Back">
         <ArrowLeft size={16} />
       </button>
-      <button type="button" className="sh-nav-btn" disabled={!active?.forward.length} onClick={() => active && tabForward(active.id)} aria-label="Forward" title="Forward">
+      <button type="button" className="sh-nav-btn" disabled={!active?.forward.length} onClick={() => active && guardTabNav(active.id, () => tabForward(active.id))} aria-label="Forward" title="Forward">
         <ArrowRight size={16} />
       </button>
       <button type="button" className="sh-nav-btn" disabled={!active} onClick={onReload} aria-label="Reload" title="Reload">
@@ -476,6 +523,7 @@ function Toolbar({ active, storeDomain, storeCreated, onReload, loadKey }: { act
         <Bookmark size={14} className="sh-omni-star" />
         {miss && <span className="sh-omni-miss">This site can’t be reached: {miss}</span>}
       </form>
+      <CoachDock variant="desktop" activeSite={active?.site ?? null} />
       <span className="sh-loadbar" key={loadKey} aria-hidden />
     </div>
   )
@@ -509,11 +557,13 @@ function PhoneBrowser({ location, fullBleed }: { location: 'home' | 'work' | 'ou
 
   return (
     <div className={clsx('sh-phone-wrap', fullBleed && 'is-full')}>
-      {banner && (
+      {banner ? (
         <div className="sh-phone-banner">
           <span>{banner.emoji}</span>
           {banner.text}
         </div>
+      ) : (
+        <SleepNote variant="phone" />
       )}
       <div className="sh-phone" role="dialog" aria-label="Phone">
         <div className="sh-phone-screen">
@@ -581,10 +631,10 @@ function PhoneBrowser({ location, fullBleed }: { location: 'home' | 'work' | 'ou
             </div>
           )}
           <div className="sh-phone-toolbar">
-            <button type="button" disabled={!active?.back.length} onClick={() => active && tabBack(active.id)} aria-label="Back">
+            <button type="button" disabled={!active?.back.length} onClick={() => active && guardTabNav(active.id, () => tabBack(active.id))} aria-label="Back">
               <ChevronLeft size={22} />
             </button>
-            <button type="button" disabled={!active?.forward.length} onClick={() => active && tabForward(active.id)} aria-label="Forward">
+            <button type="button" disabled={!active?.forward.length} onClick={() => active && guardTabNav(active.id, () => tabForward(active.id))} aria-label="Forward">
               <ChevronRight size={22} />
             </button>
             <button type="button" onClick={goHome} aria-label="Home screen" className={clsx(m.showStart && !switcher && 'is-on')}>
@@ -594,6 +644,7 @@ function PhoneBrowser({ location, fullBleed }: { location: 'home' | 'work' | 'ou
               <Layers size={19} />
               {m.tabs.length > 0 && <span>{m.tabs.length}</span>}
             </button>
+            <CoachDock variant="phone" activeSite={active?.site ?? null} />
             <button type="button" onClick={() => setComputerOpen(false)} aria-label="Put phone away">
               <X size={20} />
             </button>

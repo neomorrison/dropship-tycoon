@@ -77,6 +77,7 @@ export default function Analytics() {
   const metricPicker = (
     <AmMenu
       width={300}
+      placement="bottom-end"
       closeOnSelect={false}
       trigger={<AmButton icon={Columns3} caret>Metrics ({metrics.length})</AmButton>}
     >

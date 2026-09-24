@@ -11,7 +11,7 @@ import { DIFFICULTY } from '../../core/difficulty'
 import { roomImage } from '../../core/assets'
 import { money } from '../../core/format'
 import { sfx, toggleMuted, unlockAudio } from '../audio'
-import { enterGame } from './actions'
+import { enterGame, importErrorText } from './actions'
 import { HowToPlay } from './Overlays'
 import { useDismiss } from './common'
 import './shell.css'
@@ -352,7 +352,7 @@ function LoadPanel({ saves, storageError, busy, error, onLoad, onChanged, onBack
       setPending(await importSave(f))
       sfx.ping()
     } catch (e) {
-      setImportErr(e instanceof Error ? e.message : 'That file is not a Dropship Tycoon save.')
+      setImportErr(importErrorText(e))
       sfx.error()
     } finally {
       if (fileRef.current) fileRef.current.value = ''

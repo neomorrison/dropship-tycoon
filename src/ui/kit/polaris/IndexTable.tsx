@@ -84,6 +84,8 @@ export interface IndexTableProps<T> {
   highlightedId?: string
   /** custom content in the footer bar (replaces pagination when set) */
   footer?: ReactNode
+  /** back to page 1 whenever this changes (e.g. the view tab or search query); sorting always resets */
+  resetPageKey?: string | number
   className?: string
 }
 
@@ -150,7 +152,7 @@ function RowCheck({ checked, label, onToggle }: { checked: boolean; label: strin
 export function IndexTable<T>({
   rows, columns, rowKey, resourceName = { singular: 'item', plural: 'items' }, selectable = true, selectedIds, onSelectionChange,
   promotedBulkActions = [], bulkActions = [], onRowClick, sort, onSortChange, defaultSort, emptyState, loading, condensed,
-  pageSize, stickyFirstColumn = true, rowTone, highlightedId, footer, className,
+  pageSize, stickyFirstColumn = true, rowTone, highlightedId, footer, resetPageKey, className,
 }: IndexTableProps<T>) {
   const cols = columns.filter(c => !c.hidden)
   const [innerSel, setInnerSel] = useState<string[]>([])
@@ -172,6 +174,11 @@ export function IndexTable<T>({
   useEffect(() => {
     if (page > pageCount - 1) setPage(pageCount - 1)
   }, [page, pageCount])
+  // a new sort order or view starts from the first page, like the admin
+  const sortKey = activeSort ? `${activeSort.columnId}:${activeSort.direction}` : ''
+  useEffect(() => {
+    setPage(0)
+  }, [sortKey, resetPageKey])
   const visible = pageSize ? sorted.slice(page * pageSize, page * pageSize + pageSize) : sorted
   const visibleIds = visible.map(rowKey)
   const allIds = useMemo(() => sorted.map(rowKey), [sorted, rowKey])
@@ -313,10 +320,16 @@ export function IndexTable<T>({
                       tone && `p-itable-tone-${tone}`,
                     )}
                     onClick={e => onRow(e, row, idx, id)}
+                    onMouseDown={selectable && !onRowClick ? e => { if (e.shiftKey) e.preventDefault() } : undefined}
                     aria-selected={selectable ? isSel : undefined}
                   >
                     {selectable && (
-                      <td className={cx('p-itable-check', stickyFirstColumn && 'p-itable-sticky')} onClick={e => { e.stopPropagation(); toggleRow(idx, id, e.shiftKey) }}>
+                      <td
+                        className={cx('p-itable-check', stickyFirstColumn && 'p-itable-sticky')}
+                        // shift-click selects a range of rows: keep the browser from also selecting the text in between
+                        onMouseDown={e => { if (e.shiftKey) e.preventDefault() }}
+                        onClick={e => { e.stopPropagation(); toggleRow(idx, id, e.shiftKey) }}
+                      >
                         <RowCheck checked={isSel} label={`Select ${resourceName.singular}`} onToggle={shift => toggleRow(idx, id, shift)} />
                       </td>
                     )}
@@ -553,9 +566,18 @@ export interface DataTableProps {
   stickyHeader?: boolean
   hoverable?: boolean
 }
+/** "Apr 6, 2026" / "Apr 6" style dates sort chronologically, not alphabetically. */
+const DATE_CELL = /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{1,2}(, \d{4})?$/
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const parseCell = (v: ReactNode): number | string | null => {
   if (typeof v === 'number') return v
   if (typeof v !== 'string') return null
+  const d = DATE_CELL.exec(v.trim())
+  if (d) {
+    const [, mon, year] = d
+    const day = Number(v.trim().split(' ')[1].replace(',', ''))
+    return (year ? Number(year.slice(2)) : 0) * 10000 + MONTHS.indexOf(mon) * 100 + day
+  }
   const t = v.replace(/[$,%\s×x]/g, '')
   if (t === '' || t === '—' || t === '-') return null
   const n = Number(t)

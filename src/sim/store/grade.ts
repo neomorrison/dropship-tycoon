@@ -11,7 +11,9 @@ import {
   analyzeDescription, findSpam, objectionCovered, parsePromisedDays, stripHtml, titleContainment, titleSimilarity, words,
   contentSet, stem, isBenefitWord,
 } from './text'
-import { APP_SIM, defOf, fulfillment, hasApp, PAYMENT_LABELS, planFees, r2, sectionOf, sectionOn } from './util'
+import { APP_SIM, defOf, fulfillment, hasApp, isThreePl, PAYMENT_LABELS, planFees, r2, sectionOf, sectionOn, threePlCost } from './util'
+import { BENCHMARKS } from '../../data/benchmarks'
+import { PAYPAL_SHARE } from './analytics'
 
 export const FACTOR_WEIGHTS = {
   title: 8, description: 16, media: 12, price: 14, compare_at: 4, social_proof: 12, trust: 10, offer: 8,
@@ -117,11 +119,28 @@ export function realDeliveryWindow(s: GameState, catalogId: string): [number, nu
   return [f.shipDays[0] + extra, f.shipDays[1] + extra]
 }
 
+/**
+ * Profit per order at `price` after product, shipping (or 3PL pick & pack), duty and payment
+ * fees. Same math as breakEven() in analytics.ts, so the grader's price findings match the
+ * product editor's Break-even card.
+ */
+export function unitMargin(s: GameState, p: StoreProduct, price: number): number {
+  const f = fulfillment(s, p.catalogId)
+  const landed = f.unitCost + (isThreePl(f.mode) ? threePlCost(p.weightKg, 1) : f.shipCost)
+  const plan = planFees(s)
+  let fees = price * plan.cardPct + plan.cardFixed
+  if (s.store.payments.paypal) {
+    const pp = price * (BENCHMARKS.fees.paypalPct + plan.thirdPartyFee) + BENCHMARKS.fees.paypalFixed
+    fees = fees * (1 - PAYPAL_SHARE) + pp * PAYPAL_SHARE
+  }
+  return price - landed - fees
+}
+
 // ---------------------------------------------------------------------------
 // Grader
 // ---------------------------------------------------------------------------
-interface FR { score: number; tip: string; details: string[] }
-const fr = (score: number, tip: string, details: string[] = []): FR => ({ score: clamp(Math.round(score), 0, 100), tip, details })
+interface FR { score: number; tip: string; details: string[]; status?: PageGradeFactor['status'] }
+const fr = (score: number, tip: string, details: string[] = [], status?: PageGradeFactor['status']): FR => ({ score: clamp(Math.round(score), 0, 100), tip, details, status })
 
 const FALLBACK_DEF: ProductDef = {
   id: '_unknown', name: 'Product', niche: 'home', archetype: 'solid', supplierTitle: '', supplierDescription: '', specs: {},
@@ -186,11 +205,15 @@ export function gradePage(s: GameState, p: StoreProduct): PageGrade {
         sc = Math.min(sc, 15 - Math.round((tSim - 0.5) * 20))
         det.unshift(`${Math.round(tSim * 100)}% the same as the supplier's AliExprez title`)
       }
+      // the tip names the biggest remaining problem; praise only when nothing is left to fix
       const tip = tSim > 0.5
         ? 'This is the supplier\'s keyword-stuffed AliExprez title. Shoppers recognize it instantly and it screams "dropshipped". Write your own: product name + main benefit, 25–70 characters, no "2026 New / Hot Sale".'
-        : sc >= 85 ? 'Clear, benefit-led title. Nice.'
         : spam.length ? 'Remove the marketplace spam words. They make a store look like a reseller and hurt trust.'
+        : det.includes('Written in ALL CAPS') ? 'Write the title in normal title case. ALL CAPS reads as shouting and looks like spam.'
         : len > 70 ? 'Trim the title to 25–70 characters. Lead with what it is, then the main benefit.'
+        : det.includes('Reads like a list of supplier keywords') ? 'This reads like the supplier\'s keyword list. Keep the product name, drop the filler words and add the one benefit that sells it.'
+        : hasNoun && !benefitHit && len >= 15 ? 'Clear name, but no reason to buy. Add the main benefit or outcome, e.g. "Pet Hair Remover Roller: Lifts Fur in One Swipe".'
+        : sc >= 85 ? 'Clear, benefit-led title. Nice.'
         : 'Make the title say what it is and why it\'s better, e.g. "Cordless Spin Scrubber: Scrub Tiles Without Kneeling".'
       f.title = fr(sc, tip, det)
     }
@@ -252,6 +275,9 @@ export function gradePage(s: GameState, p: StoreProduct): PageGrade {
     const tip = w === 0
       ? 'Empty description. Write ~150 words: a hook paragraph about the problem it solves, 3–7 benefit bullets, a short "how it works", and your guarantee and shipping promise.'
       : sim >= 0.5 ? 'This is the supplier\'s spec dump pasted in. Nobody buys from "Package Include: 1 x…". Rewrite it around the shopper: the problem, the outcome, 3–7 benefit bullets, and answers to their doubts.'
+      // a strong score must not hide a finding that costs more than points (rejected ads, disputes)
+      : desc.claimTerms.length ? `Remove the medical or absolute claims (${desc.claimTerms.slice(0, 3).join(', ')}). Ad platforms reject them, and customers who feel misled ask for refunds and dispute the charge. Describe what it does, not what it cures.`
+      : sc >= 80 && desc.spamTerms.length ? `Good copy, but delete the leftover supplier phrases (${desc.spamTerms.slice(0, 3).join(', ')}). They give away that it's dropshipped.`
       : sc >= 80 ? 'Strong copy: scannable, benefit-led and it handles objections.'
       : w < 80 ? 'Too thin to sell. Expand to 80–400 words with benefit bullets and a guarantee.'
       : nb < 4 ? 'Lead with outcomes, not specs. Say what the shopper gets (saves time, no mess, finally…), and use "you".'
@@ -276,18 +302,18 @@ export function gradePage(s: GameState, p: StoreProduct): PageGrade {
     if (n > 12) det.push(`${n} images slow the page and bury the best ones`)
     if (!real) det.push('No lifestyle or customer photos')
     if (!(kinds.video + kinds.gif)) det.push('No video or GIF showing it in action')
+    const moving = kinds.video + kinds.gif > 0
     const tip = n === 0 ? 'No images. Add 5–8: a clear hero shot, the product in use, close-ups and a demo GIF or video.'
-      : base >= 85 ? 'Great gallery: enough angles plus real-life shots.'
       : n < 5 ? 'Add more images (5–8). Shoppers can\'t touch the product, so the gallery has to show it from every angle and in use.'
+      : n > 12 ? 'Cut the gallery back to your best 5–8 images. Extra photos slow the page and bury the good ones.'
       : !real ? 'Swap some supplier photos for lifestyle or customer (UGC) shots. Real people using it build belief.'
-      : 'Add a short demo video or GIF. Seeing it work beats any sentence.'
+      : !moving ? 'Add a short demo video or GIF. Seeing it work beats any sentence.'
+      : 'Great gallery: enough angles plus real-life shots.'
     f.media = fr(base, tip, det)
   }
 
   // ---- price ----
   const effPrice = effectivePrice(s, p)
-  const ful = fulfillment(s, p.catalogId)
-  const fees = planFees(s)
   {
     const det: string[] = []
     const pv = Math.max(1, d.perceivedValue)
@@ -305,8 +331,7 @@ export function gradePage(s: GameState, p: StoreProduct): PageGrade {
     const anchor = d.amazonPrice ?? (market?.competitorPrice && market.competitorPrice > 0 ? market.competitorPrice : null)
     const anchorName = d.amazonPrice ? 'on Amazin' : 'from competitors'
     if (d.amazonPrice && effPrice > d.amazonPrice * 1.15) { sc -= 10; det.push(`${money(effPrice)} is well above the ${money(d.amazonPrice)} Amazin listing shoppers will find`) }
-    const landed = ful.unitCost + ful.shipCost + (effPrice * fees.cardPct + fees.cardFixed)
-    const margin = effPrice - landed
+    const margin = unitMargin(s, p, effPrice)
     det.push(`Margin at ${money(effPrice)}: ${money(margin)} (${effPrice > 0 ? Math.round((margin / effPrice) * 100) : 0}%) after product, shipping, duty and fees`)
     if (margin > 0) det.push(`Break-even ROAS ${(effPrice / margin).toFixed(2)}`)
     const cheapMsg = anchor ? `Similar items sell for about ${money(anchor)} ${anchorName}.` : 'Check what competitors and Amazin charge.'
@@ -316,8 +341,12 @@ export function gradePage(s: GameState, p: StoreProduct): PageGrade {
       : r <= 1.0 ? 'Priced right: just under what shoppers expect to pay.'
       : r <= 1.3 ? `A bit expensive for what shoppers think it\'s worth. ${cheapMsg} Every step above the going rate costs conversions.`
       : `Overpriced. Shoppers will compare and bounce. ${cheapMsg}`
-    if (margin <= effPrice * 0.4 && effPrice > 0) det.unshift('Margin under 40%: paid ads will struggle to be profitable')
-    f.price = fr(sc, tip, det)
+    if (margin <= 0 && effPrice > 0) det.unshift(`Loses ${money(-margin)} on every order, before any ad spend`)
+    else if (margin <= effPrice * 0.4 && effPrice > 0) det.unshift('Margin under 40%: paid ads will struggle to be profitable')
+    // an automatic discount is what shoppers actually pay: say so, or the tip reads as if the list price were wrong
+    const discounted = effPrice > 0 && effPrice < p.price - 0.005
+    if (discounted) det.unshift(`Your automatic discount brings the ${money(p.price)} price down to ${money(effPrice)}`)
+    f.price = fr(sc, discounted && r < 0.75 && p.price / pv >= 0.75 ? `${tip} Your automatic discount is doing this: shrink or remove it in Discounts.` : tip, det)
   }
 
   // ---- compare-at ----
@@ -352,10 +381,15 @@ export function gradePage(s: GameState, p: StoreProduct): PageGrade {
     let tip: string
     if (!reviewsOn) {
       sc = ugcOn ? 25 : 0
+      const reviewApp = sectionAvailability(s, p, 'reviews').ok
       tip = sectionOn(p, 'reviews')
         ? 'The reviews section is on but no reviews app is installed, so nothing shows. Install Judgy.me or Lookz.'
-        : 'No reviews on the page. Strangers won\'t buy from an unknown store without them. Install a reviews app, import 30–80 real supplier reviews (4★+), and turn on the reviews section.'
-      det.push('Reviews section off')
+        : !reviewApp
+          ? 'No reviews on the page. Strangers won\'t buy from an unknown store without them. Install a reviews app, import 30–80 real supplier reviews (4★+), and turn on the reviews section.'
+          : p.reviews.count > 0
+            ? `You have ${p.reviews.count} review${p.reviews.count === 1 ? '' : 's'}, but the page doesn't show them. Add the Product reviews section.`
+            : 'No reviews on the page yet. Import 30–80 real supplier reviews (4★+) with your reviews app, then add the Product reviews section.'
+      det.push(sectionOn(p, 'reviews') ? 'Reviews section hidden (no reviews app)' : 'Reviews section off')
     } else {
       if (count <= 0) sc = 0
       else if (count < 10) sc = 25 + count * 4
@@ -405,10 +439,20 @@ export function gradePage(s: GameState, p: StoreProduct): PageGrade {
     else det.push(`No ${PAYMENT_LABELS.paypal} at checkout`)
     const fn = sectionOf(p, 'founder_note')
     if (fn?.enabled && sectionSettings('founder_note', fn.settings).text.trim().length >= 40) sc += 5
-    const tip = sc >= 85 ? 'The store looks legitimate: policies, domain, guarantee and familiar payment options.'
-      : missingPol.length >= 3 ? 'No store policies. That is a huge red flag for shoppers (and for payment processors). Generate refund, shipping, privacy and terms policies and add contact details in Settings → Policies.'
-      : !st.customDomain ? 'A "yourstore.myshopifly.com" address looks temporary. Buy a .com domain.'
-      : `Add the missing trust signals: guarantee section, trust badges, ${PAYMENT_LABELS.paypal} at checkout.`
+    // only name what is actually missing
+    const todo: string[] = []
+    if (missingPol.length) {
+      const names = missingPol.map(k => (k === 'terms' ? 'terms of service' : k === 'contact' ? 'contact information' : `${k} policy`))
+      todo.push(`${names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0]} (Settings → Policies)`)
+    }
+    if (!st.customDomain) todo.push('a custom .com domain')
+    if (!(g?.enabled && sectionSettings('guarantee', g.settings).days >= 14)) todo.push('a money-back guarantee section (14+ days)')
+    if (!hasTrustBadges(s, p)) todo.push(`trust badges near the buy button${sectionAvailability(s, p, 'trust_badges').ok ? '' : ' (TrustBadgz app)'}`)
+    if (!st.payments.paypal) todo.push(`${PAYMENT_LABELS.paypal} at checkout (Settings → Payments)`)
+    const tip = !todo.length ? 'The store looks legitimate: policies, domain, guarantee and familiar payment options.'
+      : missingPol.length >= 3 ? 'Your store policies are missing or too short. That is a huge red flag for shoppers (and for payment processors). Generate refund, shipping, privacy and terms policies and add contact details in Settings → Policies.'
+      : !st.customDomain && todo.length === 1 ? 'A "yourstore.myshopifly.com" address looks temporary. Buy a .com domain.'
+      : `${sc >= 85 ? 'Almost there. Still missing' : 'Add the missing trust signals'}: ${todo.join('; ')}.`
     f.trust = fr(sc, tip, det)
   }
 
@@ -437,7 +481,7 @@ export function gradePage(s: GameState, p: StoreProduct): PageGrade {
     if (st.discounts.some(x => x.active && x.automatic)) sc += 10
     const tip = sc >= 80 ? 'Strong offer: bundles and free shipping raise order value so you can afford more per customer.'
       : !freeShip && st.shipping.freeOver == null ? 'Shipping fees at checkout are the #1 reason carts get abandoned. Offer free shipping (build it into the price).'
-      : !hasBundles(s, p) ? 'Add quantity breaks ("Buy 2, save 10%"). A higher order value lets you outbid competitors on ads.'
+      : !hasBundles(s, p) ? `Add quantity breaks ("Buy 2, save 10%"). A higher order value lets you outbid competitors on ads.${sectionAvailability(s, p, 'bundle_offer').ok ? '' : ' Quantity breaks need the Bundlr app (or Vitalz / the Impulsive theme).'}`
       : 'Add a post-purchase upsell to lift order value without touching conversion.'
     f.offer = fr(sc, tip, det)
   }
@@ -451,7 +495,7 @@ export function gradePage(s: GameState, p: StoreProduct): PageGrade {
       honestyNotes.push('Countdown timer + low-stock alert together')
       f.urgency = fr(70, 'A countdown AND "only 7 left" on a dropshipped item is fake urgency that savvy shoppers spot. Keep one at most.', ['Both urgency widgets on'])
     } else if (cd || sc2) f.urgency = fr(100, 'A single urgency cue nudges undecided shoppers.', [])
-    else f.urgency = fr(40, 'Optional: one honest urgency cue (a real sale end date) can help. Don\'t stack them.', ['No urgency cue'])
+    else f.urgency = fr(40, 'Optional: one honest urgency cue (a real sale end date) can help. Don\'t stack them.', ['No urgency cue'], 'warn')
   }
 
   // ---- speed ----
@@ -474,7 +518,7 @@ export function gradePage(s: GameState, p: StoreProduct): PageGrade {
     const sticky = hasStickyAtc(s, p)
     if (sticky) sc += 60
     else det.push('No sticky add-to-cart')
-    const n = p.sections.filter(x => x.enabled).length
+    const n = p.sections.filter(x => x.enabled && sectionAvailability(s, p, x.id).ok).length
     sc += n <= 10 ? 40 : n <= 13 ? 20 : 0
     if (n > 10) det.push(`${n} sections: a very long scroll on phones`)
     if (hasApp(s, 'spinwheel')) { sc -= 15; det.push('Spin-to-win popup covers the page on phones') }
@@ -487,13 +531,14 @@ export function gradePage(s: GameState, p: StoreProduct): PageGrade {
   const promise = effectivePromise(p)
   const [realMin, realMax] = realDeliveryWindow(s, p.catalogId)
   let shippingLie = false
+  let slowPromise = false
   {
     const det: string[] = [`Your orders really take ${realMin}–${realMax} days`]
     let sc: number
     let tip: string
     if (!promise) {
       sc = 25
-      tip = `No delivery estimate on the page. Customers who don't know when it arrives flood you with "where is my order?" emails. Add a shipping section with an honest window (${realMin}–${realMax} days).`
+      tip = `No delivery estimate on the page. Customers who don't know when it arrives flood you with "where is my order?" emails. Set an honest delivery estimate (${realMin}–${realMax} days) in the product's Shipping card or with the Shipping & delivery section.`
       det.push('No delivery window shown')
     } else {
       const [pMin, pMax] = promise
@@ -507,13 +552,14 @@ export function gradePage(s: GameState, p: StoreProduct): PageGrade {
         tip = `You promise ${pMin}–${pMax} days but orders take ${realMin}–${realMax}. It may lift sales a little today, but late orders turn into "item not received" chargebacks, refunds and a payout hold. Promise what you can deliver, or switch to faster fulfillment.`
       } else if (pMax > realMax + 10) {
         sc = 75
-        tip = 'Your promise is much slower than reality. Honest, but you could show a tighter window.'
+        slowPromise = true
+        tip = `Your page says ${pMin}–${pMax} days but orders arrive in ${realMin}–${realMax}. Honest, but a slow-looking promise costs sales: show the real window.`
       } else {
         sc = realMax > 20 ? 72 : realMax > 12 ? 88 : 100
         tip = realMax > 20 ? 'Honest, but a 3–4 week wait costs sales. Choice-badge suppliers, an agent or US stock would let you promise faster.' : 'Clear, honest delivery window.'
       }
     }
-    f.shipping = fr(sc, tip, det)
+    f.shipping = fr(sc, tip, det, slowPromise ? 'warn' : undefined)
   }
 
   // ---- faq ----
@@ -542,10 +588,19 @@ export function gradePage(s: GameState, p: StoreProduct): PageGrade {
     if (designerPts) { sc += designerPts; det.push(`Designer on staff +${designerPts}`) }
     if (hasApp(s, 'pagefli')) { sc += APP_SIM.pagefliDesign; det.push('PageFli layout') }
     const bi = sectionOf(p, 'benefits_icons')
-    if (bi?.enabled && sectionSettings('benefits_icons', bi.settings).items.filter(i => i.title.trim()).length >= 3) sc += 4
+    const hasBenefits = !!bi?.enabled && sectionSettings('benefits_icons', bi.settings).items.filter(i => i.title.trim()).length >= 3
+    if (hasBenefits) sc += 4
     const hw = sectionOf(p, 'how_it_works')
-    if (hw?.enabled && sectionSettings('how_it_works', hw.settings).steps.filter(i => i.title.trim()).length >= 3) sc += 3
-    const tip = sc >= 80 ? 'Polished, professional look.' : 'The page looks generic. A conversion-focused theme, benefit icons, a "how it works" strip, or a designer make it feel like a real brand.'
+    const hasHow = !!hw?.enabled && sectionSettings('how_it_works', hw.settings).steps.filter(i => i.title.trim()).length >= 3
+    if (hasHow) sc += 3
+    const ideas: string[] = []
+    if (th.design < 80) ideas.push('a conversion-focused theme')
+    if (!hasBenefits) ideas.push('benefit icons (3+)')
+    if (!hasHow) ideas.push('a 3-step "how it works" strip')
+    if (!hasApp(s, 'pagefli')) ideas.push('a page builder')
+    if (!designers.length) ideas.push('a designer')
+    const list = ideas.length > 1 ? `${ideas.slice(0, -1).join(', ')} or ${ideas[ideas.length - 1]}` : ideas[0] ?? 'a stronger theme'
+    const tip = sc >= 80 ? 'Polished, professional look.' : `The page looks generic. ${list.charAt(0).toUpperCase()}${list.slice(1)} would make it feel like a real brand.`
     f.design = fr(sc, tip, det)
   }
 
@@ -585,7 +640,7 @@ export function gradePage(s: GameState, p: StoreProduct): PageGrade {
     total += w * f[k].score
     return {
       key: k, label: LABELS[k], score: f[k].score, weight: w, tip: f[k].tip,
-      status: f[k].score >= 75 ? 'good' : f[k].score >= 45 ? 'warn' : 'bad',
+      status: f[k].status ?? (f[k].score >= 75 ? 'good' : f[k].score >= 45 ? 'warn' : 'bad'),
       details: f[k].details,
     }
   })

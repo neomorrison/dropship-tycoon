@@ -9,7 +9,7 @@ import { openSite } from '../../../../core/ui'
 import { klavioPrice } from '../../../../data/apps'
 import { sourceLabel } from '../../../../sim/store'
 import {
-  Badge, Banner, BlockStack, Button, Card, DataTable, EmptyState, InlineGrid, InlineStack, Link, Page, PolarisProvider, Tabs, Text,
+  Badge, Banner, BlockStack, Button, Card, DataTable, EmptyState, InlineGrid, InlineStack, Link, Page, PolarisProvider, Text,
 } from '../../../kit/polaris'
 import { formatRange } from '../../../kit/common'
 import { aggregate, sparkValues } from '../core/analytics'
@@ -60,16 +60,24 @@ export default function Marketing({ params, navigate }: ShopiflyPageProps) {
     const prevSpend = r.cmp ? adSpendByPlatform(s, r.cmp.from, r.cmp.to) : null
     const mk = (a: typeof cur) => MARKETING.reduce((o, k) => ({ sales: o.sales + (a.salesBySource[k] ?? 0), orders: o.orders + (a.ordersBySource[k] ?? 0), sessions: o.sessions + (a.sessionsBySource[k] ?? 0) }), { sales: 0, orders: 0, sessions: 0 })
     const inRange = ordersInRange(orders, r.range.from, r.range.to)
-    return { s, cur, prev, spend, prevSpend, mkt: mk(cur), prevMkt: prev ? mk(prev) : null, inRange }
-  }, [daily, hourly, orders, pnl, r.range, r.cmp]) // eslint-disable-line react-hooks/exhaustive-deps
+    // channel rows credit each order's total when it was placed, so the totals row sums the same
+    // figures (refunds issued later are not taken back out of a channel)
+    const srcSales = Object.values(cur.salesBySource).reduce<number>((a, x) => a + (x ?? 0), 0)
+    return { s, cur, prev, spend, prevSpend, mkt: mk(cur), prevMkt: prev ? mk(prev) : null, inRange, srcSales }
+  }, [daily, hourly, orders, ads, pnl, r.range, r.cmp]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const cost = (k: TrafficSource) => (k === 'fadbook' ? v.spend.fadbook : k === 'tiktak' ? v.spend.tiktak : 0)
   const totalCost = v.spend.fadbook + v.spend.tiktak
 
   return (
     <PolarisProvider>
-      <Page title="Marketing" fullWidth>
-        <Tabs tabs={TABS} selected={tab} onSelect={i => navigate(TABS[i].id ? `marketing/${TABS[i].id}` : 'marketing')} variant="underline" />
+      {/* like the admin, Attribution and Automations are separate pages under Marketing in the sidebar */}
+      <Page
+        title={tab === 0 ? 'Marketing' : TABS[tab].content}
+        subtitle={tab === 1 ? 'Orders and sales matched to each ad, next to what the ad platforms report' : tab === 2 ? 'Email flows that run on their own' : undefined}
+        backAction={tab === 0 ? undefined : { content: 'Marketing', onAction: () => navigate('marketing') }}
+        fullWidth
+      >
         {tab !== 2 && (
           <InlineStack align="space-between" blockAlign="center" gap="200">
             <RangeControls r={r} today={today} />
@@ -99,8 +107,9 @@ export default function Marketing({ params, navigate }: ShopiflyPageProps) {
                   const c = cost(k)
                   return [sourceLabel(k), int(ses), int(ord), pct2(ses ? ord / ses : 0), usd(sal), ord ? usd(sal / ord) : '—', c ? usd(c) : '—', roas(sal, c), c && ord ? usd(c / ord) : '—']
                 })}
-                totals={['', int(v.cur.sessions), int(v.cur.orders), pct2(v.cur.conversionRate), usd(v.cur.totalSales), v.cur.orders ? usd(v.cur.totalSales / v.cur.orders) : '—', usd(totalCost), roas(v.cur.totalSales, totalCost), totalCost && v.cur.orders ? usd(totalCost / v.cur.orders) : '—']}
+                totals={['', int(v.cur.sessions), int(v.cur.orders), pct2(v.cur.conversionRate), usd(v.srcSales), v.cur.orders ? usd(v.srcSales / v.cur.orders) : '—', totalCost ? usd(totalCost) : '—', roas(v.srcSales, totalCost), totalCost && v.cur.orders ? usd(totalCost / v.cur.orders) : '—']}
                 sortable={[false, true, true, true, true, true, true, true, true]}
+                initialSortColumnIndex={4}
               />
               <div className="sf-pad sf-pad-top0">
                 <Text as="p" variant="bodySm" tone="subdued">
@@ -189,14 +198,15 @@ function Attribution({ ads, rangeFrom, rangeTo, inRange, navigate }: {
   return (
     <>
       <Banner tone="info" title="Two sources of truth">
-        "Shopifly orders" are real orders placed by visitors who arrived from each ad (last click). "Platform purchases" is what the ad platform reports, including view-through conversions and delayed matches.
+        Orders, sales and ROAS are real Shopifly orders placed by visitors who arrived from each ad (last click). "Platform purchases" is what the ad platform reports, including view-through conversions and delayed matches.
       </Banner>
       <Card padding="0">
         <DataTable
           columnContentTypes={['text', 'text', 'numeric', 'numeric', 'numeric', 'numeric', 'numeric', 'numeric', 'numeric']}
-          headings={['Ad', 'Platform', 'Spend', 'Shopifly orders', 'Shopifly sales', 'Shopifly ROAS', 'Cost per order', 'Platform purchases', 'Platform ROAS']}
+          headings={['Ad', 'Platform', 'Spend', 'Orders', 'Sales', 'ROAS', 'Cost per order', 'Platform purchases', 'Platform ROAS']}
+          truncate
           rows={rows.map(x => [
-            x.ad.name,
+            <span key="n" title={x.ad.name}>{x.ad.name}</span>,
             x.ad.platform === 'fadbook' ? 'Fadbook' : 'TikTak',
             usd(x.spend),
             int(x.shop.orders),

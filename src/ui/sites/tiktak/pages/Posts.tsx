@@ -1,14 +1,16 @@
 // Assets › TikTak posts: organic posts (views, likes, comments, shares, link-in-bio visits),
 // "Post to TikTak" (queues the post_organic activity) and Spark Ads from a post.
 import { useState, type ReactNode } from 'react'
-import { Eye, Flame, Heart, Link2, Loader2, MessageCircle, Play, Plus, Send, Share2, Zap } from 'lucide-react'
-import type { Creative, GameState, OrganicPost } from '../../../../core/types'
+import { Clock, Eye, Flame, Heart, Link2, Loader2, MessageCircle, Play, Plus, Send, Share2, Zap } from 'lucide-react'
+import type { Activity, Creative, GameState, OrganicPost } from '../../../../core/types'
 import { act, useGS } from '../../../../core/store'
 import { formatClock, formatDate } from '../../../../core/time'
 import { organicPostBlocker, sparkPost, startOrganicPost } from '../../../../sim/ads'
 import { AmButton, AmField, AmModal, AmNotice, AmSelect, amFmt } from '../../../kit/adsmanager'
 import { ImageWithFallback, formatSocialCount } from '../../../kit/common'
+import { openSite } from '../../../../core/ui'
 import { EmptyBlock, PageHead, Pill, SubTabs, useAccount, useGame, useTt } from '../common'
+import { ttUi } from '../uiState'
 import { identityName } from '../data'
 import { CreativePicker, creativeThumb } from './create/Pickers'
 
@@ -21,6 +23,14 @@ function PostTile({ c, views, width }: { c: Creative; views: number | null; widt
       <span className="tt-lib-thumb-badge"><Play size={10} fill="#fff" /> {views === null ? `0:${String(Math.round(c.durationSec)).padStart(2, '0')}` : formatSocialCount(views)}</span>
     </div>
   )
+}
+
+/** Organic posts per day before reach tanks (the sim's cap). */
+const POSTS_PER_DAY = 4
+
+/** 'post_organic' activities that are running or waiting in the player's to-do list. */
+function queuedPosts(s: GameState): Activity[] {
+  return [s.player.activity, ...s.player.queue].filter((a): a is Activity => !!a && a.kind === 'post_organic')
 }
 
 // ---------------------------------------------------------------------------
@@ -44,7 +54,13 @@ export function PostModal({ open, onClose, initialCreativeId }: { open: boolean;
   }
   const product = s.store.products.find(p => p.id === productId)
   const cr = s.creatives.creatives.find(c => c.id === creativeId)
-  const blocker = creativeId && productId ? organicPostBlocker(s, creativeId, productId) : null
+  const today = Math.floor(s.time.hour / 24)
+  const postedToday = s.ads.organicPosts.filter(p => Math.floor(p.postedHour / 24) === today).length
+  const queued = queuedPosts(s).length
+  const capHit = postedToday + queued >= POSTS_PER_DAY
+  const blocker = creativeId && productId
+    ? organicPostBlocker(s, creativeId, productId) ?? (capHit ? `You've already posted or queued ${POSTS_PER_DAY} videos today. Posting more than ${POSTS_PER_DAY} times a day tanks your reach. Try again tomorrow.` : null)
+    : null
   const post = () => {
     if (!creativeId || !productId || blocker) return
     const out: { id: string | null } = { id: null }
@@ -56,6 +72,7 @@ export function PostModal({ open, onClose, initialCreativeId }: { open: boolean;
       open={open}
       onClose={onClose}
       inline
+      pauseGame
       size="lg"
       title="Post to TikTak"
       subtitle="Publish a video on your TikTak account with your store link in bio"
@@ -78,12 +95,18 @@ export function PostModal({ open, onClose, initialCreativeId }: { open: boolean;
                 options={s.store.products.filter(p => p.status !== 'archived').map(p => ({ value: p.id, label: p.title, description: p.status === 'active' ? undefined : 'Draft: visitors will see an unavailable page' }))}
               />
             </AmField>
+            {!s.store.products.some(p => p.status !== 'archived') && (
+              <AmNotice tone="info" actions={<AmButton size="sm" onClick={() => openSite('shopifly', 'products')}>Open Shopifly</AmButton>}>
+                Your bio links to a product page. Add a product to your Shopifly store first.
+              </AmNotice>
+            )}
             <AmField label="Video">
               {product ? (
                 <CreativePicker s={s} catalogId={product.catalogId} selected={creativeId ? [creativeId] : []} onChange={ids => setCreativeId(ids[ids.length - 1] ?? null)} max={2} />
               ) : <span className="tt-muted tt-small">Select a product first.</span>}
             </AmField>
             {blocker && <AmNotice tone="warning">{blocker}</AmNotice>}
+            {!blocker && queued > 0 && <span className="tt-faint tt-small">{queued} post{queued === 1 ? ' is' : 's are'} already waiting to go up · {postedToday + queued}/{POSTS_PER_DAY} today</span>}
             <span className="tt-faint tt-small">Organic reach is unpredictable: most posts get a few hundred to a few thousand views, and a rare one takes off. Reposting the same video does worse each time.</span>
           </div>
           <div className="tt-preview" style={{ padding: 0 }}>
@@ -103,7 +126,7 @@ export function PostModal({ open, onClose, initialCreativeId }: { open: boolean;
 // ---------------------------------------------------------------------------
 // Spark modal
 // ---------------------------------------------------------------------------
-function SparkModal({ post, onClose }: { post: OrganicPost | null; onClose: () => void }) {
+function SparkModal({ post, onClose, onDone }: { post: OrganicPost | null; onClose: () => void; onDone: (adSetId: string, campaignId: string) => void }) {
   const s = useGame()
   const { navigate } = useTt()
   const { account } = useAccount()
@@ -115,7 +138,11 @@ function SparkModal({ post, onClose }: { post: OrganicPost | null; onClose: () =
     if (!post || !adSetId) return
     const out: { id: string | null } = { id: null }
     act(st => { out.id = sparkPost(st, post.id, adSetId) })
-    if (out.id) { setMsg(null); onClose() }
+    if (out.id) {
+      setMsg(null)
+      onDone(adSetId, sets.find(x => x.id === adSetId)?.campaignId ?? '')
+      onClose()
+    }
     else setMsg('This post couldn\'t be added to that ad group. Check the notification for details.')
   }
   return (
@@ -123,6 +150,7 @@ function SparkModal({ post, onClose }: { post: OrganicPost | null; onClose: () =
       open={!!post}
       onClose={onClose}
       inline
+      pauseGame
       title="Boost with Spark Ads"
       subtitle="Run this post as an ad. Views, likes and follows count on the original post."
       footer={<>
@@ -188,9 +216,10 @@ export default function Posts() {
   const { navigate } = useTt()
   const [postOpen, setPostOpen] = useState(false)
   const [sparkFor, setSparkFor] = useState<OrganicPost | null>(null)
+  const [sparked, setSparked] = useState<{ adSetId: string; campaignId: string } | null>(null)
   const activity = useGS(st => st.player.activity)
   const queue = useGS(st => st.player.queue)
-  const pending = [activity, ...queue].filter(a => a && a.kind === 'post_organic')
+  const pending = [activity, ...queue].filter((a): a is Activity => !!a && a.kind === 'post_organic')
   const posts = [...s.ads.organicPosts].sort((a, b) => b.postedHour - a.postedHour)
   const totals = posts.reduce((acc, p) => ({ views: acc.views + p.views, likes: acc.likes + p.likes, sessions: acc.sessions + (p.sessions ?? 0) }), { views: 0, likes: 0, sessions: 0 })
   const today = Math.floor(s.time.hour / 24)
@@ -205,17 +234,36 @@ export default function Posts() {
       />
       <SubTabs tabs={[{ id: 'videos', label: 'Videos' }, { id: 'posts', label: 'TikTak posts' }]} active="posts" onChange={id => id === 'videos' && navigate('assets/creatives')} />
       <div className="tt-kpis">
-        <div className="tt-kpi tt-kpi-static"><span className="tt-kpi-label">Posts</span><span className="tt-kpi-value">{amFmt.int(posts.length)}</span><span className="tt-kpi-foot">{postsToday}/4 today</span></div>
+        <div className="tt-kpi tt-kpi-static"><span className="tt-kpi-label">Posts</span><span className="tt-kpi-value">{amFmt.int(posts.length)}</span><span className="tt-kpi-foot">{postsToday}/{POSTS_PER_DAY} today{pending.length ? ` · ${pending.length} queued` : ''}</span></div>
         <div className="tt-kpi tt-kpi-static"><span className="tt-kpi-label">Total views</span><span className="tt-kpi-value">{formatSocialCount(totals.views)}</span></div>
         <div className="tt-kpi tt-kpi-static"><span className="tt-kpi-label">Total likes</span><span className="tt-kpi-value">{formatSocialCount(totals.likes)}</span></div>
         <div className="tt-kpi tt-kpi-static"><span className="tt-kpi-label">Link-in-bio visits</span><span className="tt-kpi-value">{amFmt.int(totals.sessions)}</span></div>
       </div>
       {pending.length > 0 && (
         <AmNotice tone="info" title={`${pending.length} post${pending.length === 1 ? '' : 's'} waiting to go up`}>
-          <span className="tt-row" style={{ gap: 6 }}>
-            <Loader2 size={14} className="am-spinner" />
-            {pending.map(a => a!.label).join(' · ')}{activity?.kind === 'post_organic' && activity.startedHour != null ? ` (started ${formatClock(activity.startedHour)})` : ''}
-          </span>
+          <ul className="tt-pending">
+            {pending.map(a => {
+              const c = s.creatives.creatives.find(x => x.id === a.payload?.creativeId)
+              const now = a === activity
+              return (
+                <li key={a.id}>
+                  {now ? <Loader2 size={13} className="am-spinner" /> : <Clock size={13} />}
+                  <span className="tt-pending-name">{c?.name ?? a.label}</span>
+                  <span className="tt-faint">{now ? `Posting now${a.startedHour != null ? ` · started ${formatClock(a.startedHour)}` : ''}` : 'In your to-do list'}</span>
+                </li>
+              )
+            })}
+          </ul>
+        </AmNotice>
+      )}
+      {sparked && (
+        <AmNotice
+          tone="success"
+          title={`Spark Ad added to “${s.ads.adSets.find(x => x.id === sparked.adSetId)?.name ?? 'your ad group'}”`}
+          onDismiss={() => setSparked(null)}
+          actions={<AmButton size="sm" onClick={() => { ttUi().set({ level: 'ad', statusFilter: 'all_but_deleted', search: '', selected: { campaign: [sparked.campaignId], adset: [sparked.adSetId], ad: [] } }); navigate('campaign/ad') }}>View ads</AmButton>}
+        >
+          It goes through review first, usually within 24 hours. Adding an ad restarts the ad group&apos;s learning phase.
         </AmNotice>
       )}
       {posts.length === 0 ? (
@@ -231,7 +279,7 @@ export default function Posts() {
         </div>
       )}
       <PostModal open={postOpen} onClose={() => setPostOpen(false)} />
-      <SparkModal post={sparkFor} onClose={() => setSparkFor(null)} />
+      <SparkModal post={sparkFor} onClose={() => setSparkFor(null)} onDone={(adSetId, campaignId) => setSparked({ adSetId, campaignId })} />
     </div>
   )
 }

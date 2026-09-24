@@ -8,9 +8,12 @@ export interface DayRecap {
   day: Day
   revenue: number
   refunds: number
+  /** ad spend the platforms delivered that day (billing charges land on other days) */
   adSpendFadbook: number
   adSpendTiktak: number
   adSpend: number
+  /** ad charges actually billed to your card/bank that day */
+  adBilled: number
   /** product cost + shipping */
   cogs: number
   fees: number
@@ -38,24 +41,47 @@ export interface DayRecap {
   hasBusiness: boolean
 }
 
+/** Spend the ads delivered on `day`, per platform (null when no ad has stats for that day). */
+function deliveredSpend(s: GameState, day: Day): { fadbook: number; tiktak: number } | null {
+  let fadbook = 0
+  let tiktak = 0
+  let any = false
+  for (const ad of s.ads?.ads ?? []) {
+    const st = ad.stats?.[day]
+    if (!st) continue
+    any = true
+    const v = Number.isFinite(st.spend) ? st.spend : 0
+    if (ad.platform === 'tiktak') tiktak += v
+    else fadbook += v
+  }
+  return any ? { fadbook, tiktak } : null
+}
+
 export function buildRecap(s: GameState, day: Day): DayRecap {
   const p = s.finance.pnl[day] ?? emptyPnl()
   const a = s.store.analytics.daily[day]
-  const adSpend = p.adSpendFadbook + p.adSpendTiktak
+  const adBilled = p.adSpendFadbook + p.adSpendTiktak
+  // the P&L books ad spend when a platform bills the card (threshold / monthly), which makes a
+  // single day look free or terrible; the recap judges the day by what the ads actually spent
+  const delivered = deliveredSpend(s, day)
+  const adSpendFadbook = delivered ? delivered.fadbook : p.adSpendFadbook
+  const adSpendTiktak = delivered ? delivered.tiktak : p.adSpendTiktak
+  const adSpend = adSpendFadbook + adSpendTiktak
   const cogs = p.cogs + p.shipping
   const profit = p.revenue - p.refunds - p.chargebacks - cogs - adSpend - p.paymentFees - p.apps - p.creatives - p.staff - p.otherBusiness
   const snap = s.history.find(h => h.day === day)
   const prev = s.history.find(h => h.day === day - 1)
   const orders = a?.orders ?? 0
   const sessions = a?.sessions ?? 0
-  const hasBusiness = p.revenue > 0 || adSpend > 0 || orders > 0 || sessions > 0 || p.creatives > 0 || p.apps > 0 || p.cogs > 0
+  const hasBusiness = p.revenue > 0 || adSpend > 0 || adBilled > 0 || orders > 0 || sessions > 0 || p.creatives > 0 || p.apps > 0 || p.cogs > 0
   return {
     day,
     revenue: p.revenue,
     refunds: p.refunds + p.chargebacks,
-    adSpendFadbook: p.adSpendFadbook,
-    adSpendTiktak: p.adSpendTiktak,
+    adSpendFadbook,
+    adSpendTiktak,
     adSpend,
+    adBilled,
     cogs,
     fees: p.paymentFees,
     apps: p.apps,

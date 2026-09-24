@@ -3,8 +3,8 @@
 import type { ReactNode } from 'react'
 import { Bell, LockKeyhole, LogOut, Menu } from 'lucide-react'
 import type { SiteProps } from '../types'
-import { hourOfDay } from '../../../core/time'
-import { firstNameOf, segs, useWorld } from './lifeCommon'
+import { hourOfDay, yearOf } from '../../../core/time'
+import { firstNameOf, segs, todayOf, useWorld } from './lifeCommon'
 import { Overview } from './Overview'
 import { CardPage } from './CardPage'
 import { ActivityPage } from './Activity'
@@ -80,7 +80,7 @@ export default function ChaiseBank({ path, navigate, compact }: SiteProps) {
         <div className="bk-footer-in">
           <span>Chaise Bank, N.A. Member FDIC-ish. Equal Housing Lender.</span>
           <span>Deposit products provided by Chaise Bank. Credit cards are issued by Chaise Bank and subject to credit approval.</span>
-          <span>© 2026 Chaise Financial Holdings, Inc.</span>
+          <span>© {yearOf(todayOf(s))} Chaise Financial Holdings, Inc.</span>
         </div>
       </footer>
     </div>

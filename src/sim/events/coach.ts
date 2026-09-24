@@ -101,7 +101,7 @@ export function onboardingInsight(s: GameState): Insight | null {
   const cat = sp.catalogId
   if (readyCreatives(s, cat) < 3 && !s.ads.campaigns.length) return { id: 'onb_creatives', priority: 100, essential: true, app: 'studio', text: `Make at least 3 creatives with DIFFERENT hooks before you launch (you have ${readyCreatives(s, cat)}). Only ~1 in 12–25 ads becomes a winner, so you need shots on goal. No sample yet? Edit supplier footage — or order a sample and film it yourself.` }
   if (!s.ads.campaigns.length) return { id: 'onb_ads', priority: 100, essential: true, app: 'fadbook', text: `Launch a test: one campaign at $30–50/day, broad targeting, 3+ ads, optimizing for purchases. Then leave it alone for 2–3 days. Kill an ad only after it spends ~2× your break-even CPA with no sale.` }
-  if (s.finance.card.balance > 0 && s.finance.card.autopay !== 'full') return { id: 'onb_card', priority: 100, essential: true, app: 'bank', text: `Ad platforms bill your Chaise card every time you hit a spending threshold. Set autopay to the FULL statement balance in Chaise Bank — minimum payments rack up ~${Math.round(s.finance.card.apr * 100)}% APR interest, and a declined ad payment stops your ads.` }
+  if (s.finance.card.balance > 0 && s.finance.card.autopay !== 'full') return { id: 'onb_card', priority: 100, essential: true, app: 'bank', path: 'card', text: `Ad platforms bill your Chaise card every time you hit a spending threshold. Set autopay to the FULL statement balance in Chaise Bank — minimum payments rack up ~${Math.round(s.finance.card.apr * 100)}% APR interest, and a declined ad payment stops your ads.` }
   return null
 }
 
@@ -215,9 +215,9 @@ export function analyzeBusiness(s: GameState): Insight[] {
     if (atcRate < SB.atcRate.bad) {
       out.push({ id: `atc_${day}`, priority: 66, app: 'shopifly', path: top ? `products/${top.id}` : 'products', text: `Only ${pc(atcRate)} of ${st3.sessions.toLocaleString('en-US')} visitors added to cart in 3 days (average ${pc(SB.atcRate.avg)}, good ${pc(SB.atcRate.good)}). The page, price or trust is failing${worst ? ` — biggest gap: ${worst.label} (${Math.round(worst.score)}/100). ${worst.tip}` : '.'}` })
     } else if (st3.atc > 0 && st3.converted / st3.atc < 0.22) {
-      out.push({ id: `checkout_${day}`, priority: 64, app: 'shopifly', path: 'settings', text: `People add to cart (${pc(atcRate)}) but only ${pc(st3.converted / st3.atc, 0)} of them buy. That's a checkout problem: surprise shipping costs, a delivery promise that scares them, or missing payment options (Shop Pay/PayPal).` })
+      out.push({ id: `checkout_${day}`, priority: 64, app: 'shopifly', path: 'settings', text: `People add to cart (${pc(atcRate)}) but only ${pc(st3.converted / st3.atc, 0)} of them buy. That's a checkout problem: surprise shipping costs, a delivery promise that scares them, or missing payment options (Shopifly Pay/PayPel).` })
     } else if (cvr < SB.cvr.bad) {
-      out.push({ id: `cvr_${day}`, priority: 60, app: 'shopifly', path: 'analytics', text: `Store conversion rate is ${pc(cvr, 2)} over ${st3.sessions.toLocaleString('en-US')} sessions (Shopify average ${pc(SB.cvr.avg)}, top 20% ${pc(SB.cvr.good)}). Fix the page before buying more traffic.` })
+      out.push({ id: `cvr_${day}`, priority: 60, app: 'shopifly', path: 'analytics', text: `Store conversion rate is ${pc(cvr, 2)} over ${st3.sessions.toLocaleString('en-US')} sessions (store average ${pc(SB.cvr.avg)}, top 20% ${pc(SB.cvr.good)}). Fix the page before buying more traffic.` })
     }
   }
 
@@ -360,7 +360,7 @@ function stageTips(s: GameState): string[] {
       return { p, l, growth, landed, anchor, score }
     }).filter((x): x is NonNullable<typeof x> => !!x && x.anchor >= 2.8 && x.l.rating >= 4.5).sort((a, b) => b.score - a.score).slice(0, 2)
     for (const c of scored) {
-      tips.push(`Worth an hour of research: ${c.p.name} — orders ${c.growth >= 0 ? 'up' : 'down'} ${Math.abs(Math.round(c.growth * 100))}% over two weeks, rated ${c.l.rating.toFixed(1)}★, Amazin price ${money(c.p.amazonPrice ?? 0)} vs ~${money(c.landed)} landed (${f1(c.anchor)}×). Check how many stores already advertise it before committing.`)
+      tips.push(`Worth an hour of research: ${c.p.name} — ${Math.abs(c.growth) < 0.02 ? 'orders steady' : `orders ${c.growth > 0 ? 'up' : 'down'} ${Math.abs(Math.round(c.growth * 100))}%`} over two weeks, rated ${c.l.rating.toFixed(1)}★, Amazin price ${money(c.p.amazonPrice ?? 0)} vs ~${money(c.landed)} landed (${f1(c.anchor)}×). Check how many stores already advertise it before committing.`)
     }
   }
   const avail = s.finance.cash + cardAvailable(s)
@@ -438,7 +438,7 @@ export function coachTickHour(s: GameState): void {
   if (hod < 8 || hod > 22 || hod % 2 !== 0) return
   if (s.player.activity?.kind === 'sleep') return
   if (!onb || recentlyCovered(s, ONBOARDING_EQUIVALENTS[onb.id], 30)) return
-  queueTip(s, onb.id, onb.text, { app: onb.app, essential: true, cooldownHours: 30 })
+  queueTip(s, onb.id, onb.text, { app: onb.app, path: onb.path, essential: true, cooldownHours: 30 })
 }
 
 export function coachDayRollover(s: GameState, _day: number): void {
@@ -448,7 +448,7 @@ export function coachDayRollover(s: GameState, _day: number): void {
   let queued = 0
   for (const i of ranked) {
     if (queued >= 2) break
-    if (queueTip(s, i.id, i.text, { app: i.app, cooldownHours: i.priority >= 90 ? 24 : 72 })) queued++
+    if (queueTip(s, i.id, i.text, { app: i.app, path: i.path, cooldownHours: i.priority >= 90 ? 24 : 72 })) queued++
   }
 }
 

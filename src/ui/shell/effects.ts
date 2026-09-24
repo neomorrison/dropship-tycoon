@@ -1,5 +1,6 @@
 // Game-screen side effects: keyboard shortcuts, save-on-hide, midnight recap, level-up chimes.
 import { useEffect, useRef } from 'react'
+import type { GameState } from '../../core/types'
 import { useGame, useGS } from '../../core/store'
 import { useUI, setSpeed, togglePause } from '../../core/ui'
 import { saveGame } from '../../core/save'
@@ -19,6 +20,8 @@ export function useShortcuts() {
       if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || e.repeat) return
       const u = useUI.getState()
       if (e.key === 'Escape') {
+        // a decision modal can't be dismissed, and Esc shouldn't close what's behind it either
+        if (useGame.getState().state?.events.modals.length) return
         if (u.overlay) {
           u.set({ overlay: null })
           e.preventDefault()
@@ -30,6 +33,8 @@ export function useShortcuts() {
       }
       if (isTypingTarget(e.target)) return
       if (e.code === 'Space' || e.key === ' ') {
+        // (Space always pauses, even with a button focused: a habitual pause must never re-click
+        // the last button pressed in a site, like "Pay now")
         e.preventDefault()
         togglePause()
         sfx.click()
@@ -106,6 +111,41 @@ export function useMidnightRecap() {
     st.set({ toasts: st.toasts.filter(t => t.kind !== 'recap') })
     pushToast({ kind: 'recap', title, body: `${bits.join(' · ')} · tap for the full report`, action: 'daily_report', day: r.day, ttl: 8000 })
   }, [day, saveId])
+}
+
+/**
+ * A shift that starts while you're asleep or busy gives you one in-game hour to clock in, which is
+ * a fraction of a second of real time at 4× while asleep (16× in the room view). Pause the clock the
+ * moment it happens so the player can actually react (wake up / go now, or decide to skip it).
+ * This runs as a synchronous store subscription, not an effect: several hours can tick inside one
+ * animation frame, and the engine stops ticking as soon as the speed drops to 0.
+ */
+export function usePauseOnLateShift() {
+  useEffect(() => {
+    let prev: { key: string | null; saveId: string } | null = null
+    const check = (s: GameState | null) => {
+      if (!s) {
+        prev = null
+        return
+      }
+      const sh = s.job.shifts.find(x => x.status === 'scheduled' && x.pendingSince !== undefined)
+      const key = sh ? `${sh.day}:${sh.startHour}` : null
+      const p = prev
+      prev = { key, saveId: s.meta.saveId }
+      if (!p || p.saveId !== s.meta.saveId || !key || key === p.key) return
+      // passed out: nothing the player can do about it, so don't stop the clock for nothing
+      const act = s.player.activity
+      if (act?.kind === 'sleep' && act.payload?.forced) return
+      if (useUI.getState().speed !== 0) {
+        setSpeed(0)
+        sfx.error()
+      }
+    }
+    check(useGame.getState().state)
+    return useGame.subscribe((st, before) => {
+      if (st.state !== before.state) check(st.state)
+    })
+  }, [])
 }
 
 /** Chime on skill level-ups and new milestones (the sim posts its own notifications). */

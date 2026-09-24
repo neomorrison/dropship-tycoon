@@ -1,5 +1,5 @@
 // CreatorHub (creatorhub.co): brief, film and order ad creatives. Owner: ui-studio. Class prefix ch-.
-import { useMemo } from 'react'
+import { memo, useMemo } from 'react'
 import { Clapperboard, Library as LibraryIcon, PenLine, Users, Wallet } from 'lucide-react'
 import type { SiteProps } from '../types'
 import { useGS } from '../../../core/store'
@@ -12,7 +12,7 @@ import { CreativeDetail } from './CreativeDetail'
 import { Creators } from './Creators'
 import './studio.css'
 
-export default function Site({ path, navigate, compact }: SiteProps) {
+function Site({ path, navigate, compact }: SiteProps) {
   const route = useMemo(() => parseRoute(path), [path])
   return (
     <div className={cx('ch-root', compact && 'ch-compact')}>
@@ -77,3 +77,6 @@ function TopBar({ route, navigate, compact }: { route: StudioRoute; navigate: (p
     </header>
   )
 }
+
+// memo: the browser shell re-renders open tabs on every game tick; pages subscribe to what they need
+export default memo(Site)

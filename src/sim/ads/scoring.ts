@@ -460,8 +460,11 @@ export function creativeTips(s: GameState, c: Creative, scores?: CreativeScores)
   ].filter(g => g.loss > 0.02).sort((a, b) => b.loss - a.loss)
 
   const maxTips = lvl >= 6 ? 3 : lvl >= 3 ? 2 : 1
+  // the stop rate already beats the benchmark: a hook-fit gap then costs buyers, not thumb-stops
+  const hookBench = plat === 'fadbook' ? BENCHMARKS.fadbook.hookRate : BENCHMARKS.tiktak.view2sRate
+  const hookLooksFine = c.isVideo && stats.impressions >= 1000 && m.hookRate >= hookBench.avg
   for (const g of gaps.slice(0, maxTips)) {
-    const t = gapTip(g.key, lvl, p, c, k)
+    const t = gapTip(g.key, lvl, p, c, k, hookLooksFine)
     if (t) tips.push(t)
   }
   if (!gaps.length || (sc.hook > 0.75 && sc.fit > 0.8)) {
@@ -473,12 +476,16 @@ export function creativeTips(s: GameState, c: Creative, scores?: CreativeScores)
   return tips
 }
 
-function gapTip(key: string, lvl: number, p: ProductDef, c: Creative, k: ScoreBreakdown): string | null {
+function gapTip(key: string, lvl: number, p: ProductDef, c: Creative, k: ScoreBreakdown, hookLooksFine = false): string | null {
   const hn = hookName(c.hook)
   const fn = formatName(c.format)
   const an = angleName(c.angle)
   switch (key) {
     case 'hookFit': {
+      if (hookLooksFine) {
+        if (lvl <= 2) return 'The opening stops people, but maybe not the ones who buy. Test another opening.'
+        if (lvl <= 5) return `The "${hn}" opener stops the scroll, but it may be stopping the wrong people: clicks and buyers lag behind. Keep the body and test a different hook type.`
+      }
       if (lvl <= 2) return 'People scroll past in the first seconds. The opening may not suit this product.'
       if (lvl <= 5) return `The "${hn}" opener isn't resonating with this product's buyers. Keep the body and test a different hook type.`
       let t = `The "${hn}" hook is a weak match here: ${hookReason(p, c.hook)}. Keep the body, swap the first 3 seconds.`

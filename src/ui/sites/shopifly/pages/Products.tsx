@@ -79,10 +79,10 @@ export default function Products({ navigate }: ShopiflyPageProps) {
 
   const columns: IndexTableColumn<Row>[] = [
     {
-      id: 'product', title: 'Product', sortValue: r => r.p.title.toLowerCase(), minWidth: 260, width: 340,
+      id: 'product', title: 'Product', sortValue: r => r.p.title.toLowerCase(), minWidth: 220, width: 260,
       render: r => (
         <InlineStack gap="300" blockAlign="center" wrap={false}>
-          <Thumbnail source={r.p.media[0]?.src ?? productImage(r.p.catalogId)} alt={r.p.title} size="small" />
+          <Thumbnail source={r.p.media[0]?.src || productImage(r.p.catalogId)} alt={r.p.title} size="small" />
           <span className="sf-mx-celltitle" title={r.p.title}>{r.p.title || 'Untitled product'}</span>
         </InlineStack>
       ),
@@ -97,15 +97,23 @@ export default function Products({ navigate }: ShopiflyPageProps) {
     },
     { id: 'price', title: 'Price', numeric: true, render: r => money(r.p.price), sortValue: r => r.p.price },
     {
-      id: 'grade', title: 'Page grade', numeric: true, tooltip: 'How well the product page is built to convert (0–100).',
+      id: 'grade', title: 'Grade', numeric: true, tooltip: 'Page grade: how well the product page is built to convert (0–100).',
       render: r => r.p.grade ? (
         <span className="sf-mx-gradecell"><span className="sf-mx-gradedot" style={{ background: gradeColor(r.p.grade.score) }} />{Math.round(r.p.grade.score)}</span>
       ) : '—',
       sortValue: r => r.p.grade?.score ?? 0,
     },
-    { id: 'sales', title: 'Sales (30d)', numeric: true, render: r => (r.orders30 ? `${money(r.sales30, { cents: false })} · ${num(r.orders30)}` : <Text as="span" tone="subdued">—</Text>), sortValue: r => r.sales30 },
+    {
+      id: 'sales', title: 'Sales (30d)', numeric: true, nowrap: true, sortValue: r => r.sales30,
+      render: r => (r.orders30 ? (
+        <BlockStack gap="0" inlineAlign="end">
+          <Text as="span" numeric>{money(r.sales30, { cents: false })}</Text>
+          <Text as="span" tone="subdued" variant="bodySm">{num(r.orders30)} order{r.orders30 === 1 ? '' : 's'}</Text>
+        </BlockStack>
+      ) : <Text as="span" tone="subdued">—</Text>),
+    },
     { id: 'type', title: 'Type', render: r => r.p.productType || <Text as="span" tone="subdued">—</Text> },
-    { id: 'vendor', title: 'Vendor', render: r => <Text as="span" truncate>{r.p.vendor}</Text> },
+    { id: 'vendor', title: 'Vendor', width: 130, render: r => <span className="sf-mx-cellclip" title={r.p.vendor}>{r.p.vendor || '—'}</span> },
   ]
 
   const bulkStatus = (status: StoreProduct['status']) => (ids: string[]) => {

@@ -3,7 +3,7 @@
 // listing, status/publishing/organization) plus the game's Page grade and Break-even
 // cards, graded live against the unsaved draft. Saving calls updateProduct (copywriting XP
 // when the grade improves) and setProductStatus.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Archive, ArchiveRestore, Eye, LayoutTemplate, Plus, Sparkles, Trash2, X } from 'lucide-react'
 import type { ShopiflyPageProps } from '../route'
 import type { StoreProduct } from '../../../../core/types'
@@ -12,11 +12,11 @@ import { openSite, usePauseWhileMounted } from '../../../../core/ui'
 import { money, pct } from '../../../../core/format'
 import { formatDate } from '../../../../core/time'
 import { sectionSettings } from '../../../../data/sections'
-import { deleteProduct, gradePage, realDeliveryWindow, setProductStatus, updateProduct } from '../../../../sim/store'
+import { breakEven, deleteProduct, gradePage, realDeliveryWindow, setProductStatus, updateProduct } from '../../../../sim/store'
 import { fulfillmentFor } from '../../../../sim/market'
 import { copywriterQuality, hasCopywriter, skillLevel, staffByRole } from '../../../../sim/life'
 import {
-  Badge, Banner, BlockStack, Box, Button, Card, Checkbox, ContextualSaveBar, Divider, EmptyState, InlineGrid, InlineStack, Layout,
+  Badge, Banner, BlockStack, Box, Button, Card, Checkbox, Divider, EmptyState, InlineGrid, InlineStack, Layout,
   Link, Modal, Page, RichTextEditor, Select, TagsInput, Text, TextField, richTextToPlain,
 } from '../../../kit/polaris'
 import { Stars } from '../../../kit/common'
@@ -31,7 +31,7 @@ import { MediaCard } from '../merch/MediaCard'
 import { SectionsCard } from '../merch/SectionsCard'
 import { addSection, setDeliveryWindow, setSectionSettings } from '../merch/sectionOps'
 import { copywriterRewrite } from '../merch/copywriter'
-import { ImportReviewsModal, installedReviewApp, useFlash, useLeaveGuard } from '../merch/shared'
+import { AdminSaveBar, ImportReviewsModal, installedReviewApp, useFlash, useLeaveGuard } from '../merch/shared'
 import '../merch/merch.css'
 
 const STATUS_BADGE: Record<StoreProduct['status'], { tone: 'success' | 'info' | 'read-only'; label: string }> = {
@@ -71,6 +71,8 @@ function Editor({ product, navigate }: { product: StoreProduct; navigate: (path:
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [rewrite, setRewrite] = useState<{ n: number; answered: number; total: number } | null>(null)
   const [saving, setSaving] = useState(false)
+  // bumped on save/discard so per-card UI state (media selection, open pickers) starts fresh
+  const [formKey, setFormKey] = useState(0)
 
   const def = useMemo(() => catalogDef(product.catalogId), [product.catalogId])
   const preview = useMemo(() => applyDraft(product, draft), [product, draft])
@@ -80,12 +82,30 @@ function Editor({ product, navigate }: { product: StoreProduct; navigate: (path:
   const creatives = useMemo(() => s.creatives.creatives.filter(c => c.catalogId === product.catalogId && c.status === 'ready'), [s.creatives.creatives, product.catalogId])
   const realWindow = useMemo(() => realDeliveryWindow(s, product.catalogId), [s, product.catalogId])
   const ful = useMemo(() => fulfillmentFor(s, product.catalogId), [s, product.catalogId])
+  // same landed cost as the Break-even card (3PL orders pay pick & pack + postage instead of supplier shipping)
+  const landed = useMemo(() => {
+    const total = breakEven(ps, product.id).landedCost
+    const unit = Math.min(total, ful.unitCost)
+    return { total, unit, ship: Math.max(0, total - unit) }
+  }, [ps, product.id, ful.unitCost])
   const domain = s.store.customDomain ?? s.store.subdomain
 
-  // keep the editor in sync if the product changes elsewhere while the draft is clean
+  // keep the editor in sync when the product changes elsewhere (status set from the list, an archive
+  // action, a save): fields the player hasn't touched take the new value, their edits are kept
+  const prevProduct = useRef(product)
   useEffect(() => {
-    if (!dirty) setDraft(d => toDraft(product, d.weightUnit))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const before = prevProduct.current
+    prevProduct.current = product
+    if (before === product) return
+    setDraft(d => {
+      const oldBase = toDraft(before, d.weightUnit)
+      const newBase = toDraft(product, d.weightUnit)
+      const next = { ...d } as Record<string, unknown>
+      for (const k of Object.keys(newBase) as (keyof ProductDraft)[]) {
+        if (JSON.stringify(d[k]) === JSON.stringify(oldBase[k])) next[k] = newBase[k]
+      }
+      return next as unknown as ProductDraft
+    })
   }, [product])
 
   const set = <K extends keyof ProductDraft>(k: K, v: ProductDraft[K]) => setDraft(d => ({ ...d, [k]: v }))
@@ -93,6 +113,12 @@ function Editor({ product, navigate }: { product: StoreProduct; navigate: (path:
   const save = () => {
     if (!draft.title.trim()) {
       showFlash('Title can\'t be blank', 'critical')
+      return
+    }
+    // never save a typo as $0.00
+    const invalid = priceError ?? capError ?? costError
+    if (invalid) {
+      showFlash(invalid, 'critical')
       return
     }
     setSaving(true)
@@ -105,6 +131,7 @@ function Editor({ product, navigate }: { product: StoreProduct; navigate: (path:
     if (np) setDraft(toDraft(np, draft.weightUnit))
     setSaving(false)
     setRewrite(null)
+    setFormKey(k => k + 1)
     const after = np?.grade?.score
     if (np && draft.status !== np.status) showFlash('Saved. The product couldn\'t go live yet', 'critical')
     else if (before != null && after != null && Math.round(after) !== Math.round(before)) showFlash(`Product saved · page grade ${Math.round(before)} → ${Math.round(after)}`)
@@ -113,6 +140,7 @@ function Editor({ product, navigate }: { product: StoreProduct; navigate: (path:
   const discard = () => {
     setDraft(toDraft(product, draft.weightUnit))
     setRewrite(null)
+    setFormKey(k => k + 1)
   }
 
   // ---- copywriter ----
@@ -140,7 +168,15 @@ function Editor({ product, navigate }: { product: StoreProduct; navigate: (path:
   const cap = parseNum(draft.compareAtPrice)
   const profit = price - cost
   const margin = price > 0 ? profit / price : 0
-  const priceError = draft.price.trim() && parseNum(draft.price) == null ? 'Enter a valid price' : undefined
+  const moneyError = (v: string, what: string) => {
+    if (!v.trim()) return undefined
+    const n = parseNum(v)
+    return n == null ? `Enter a valid ${what}` : n < 0 ? `${what.charAt(0).toUpperCase()}${what.slice(1)} can't be negative` : undefined
+  }
+  // a blank or $0 price would put the product on sale for free: always ask for one
+  const priceError = !draft.price.trim() ? 'Enter a price' : moneyError(draft.price, 'price') ?? ((parseNum(draft.price) ?? 0) <= 0 ? 'Price must be more than $0.00' : undefined)
+  const capError = moneyError(draft.compareAtPrice, 'compare-at price')
+  const costError = moneyError(draft.costPerItem, 'cost')
   const capWarn = cap != null && cap > 0 && cap <= price ? 'Compare-at price should be higher than the price' : undefined
 
   // ---- delivery promise (shipping section) ----
@@ -159,7 +195,8 @@ function Editor({ product, navigate }: { product: StoreProduct; navigate: (path:
   const hasOptions = draft.variants.some(v => v.name.trim() && v.values.length)
 
   // ---- navigation ----
-  const list = s.store.products
+  // prev/next follow the Products list's default order (newest first)
+  const list = useMemo(() => [...s.store.products].reverse(), [s.store.products])
   const idx = list.findIndex(p => p.id === product.id)
   const prev = idx > 0 ? list[idx - 1] : null
   const next = idx >= 0 && idx < list.length - 1 ? list[idx + 1] : null
@@ -178,7 +215,8 @@ function Editor({ product, navigate }: { product: StoreProduct; navigate: (path:
     realWindow,
     creatives: creatives.filter(c => c.producer !== 'supplier_edit').map(c => ({ id: c.id, name: c.name, producer: c.producer })),
     storeName: s.store.theme.logoText || s.store.name,
-    freeOver: s.store.shipping.freeOver,
+    freeOver: s.store.shipping.freeShipping ? null : s.store.shipping.freeOver,
+    freeShipping: s.store.shipping.freeShipping,
   }
   const inv = s.catalog.inventory[product.catalogId]
   const threePl = ful.mode === 'bulk' || ful.mode === 'private_label'
@@ -186,12 +224,11 @@ function Editor({ product, navigate }: { product: StoreProduct; navigate: (path:
 
   return (
     <div className="sf-mx-page">
-      <ContextualSaveBar
+      <AdminSaveBar
         visible={dirty}
         message="Unsaved changes"
         saveAction={{ onAction: save, loading: saving, content: 'Save' }}
         discardAction={{ onAction: discard, content: 'Discard' }}
-        placement="sticky"
       />
       <Page
         backAction={{ content: 'Products', onAction: () => guard(() => navigate('products')) }}
@@ -205,9 +242,10 @@ function Editor({ product, navigate }: { product: StoreProduct; navigate: (path:
           {
             title: 'More actions',
             actions: [
+              // applied right away; the draft follows so a later Save doesn't undo it
               product.status === 'archived'
-                ? { content: 'Unarchive product', icon: ArchiveRestore, onAction: () => act(st => setProductStatus(st, product.id, 'draft')) }
-                : { content: 'Archive product', icon: Archive, onAction: () => act(st => setProductStatus(st, product.id, 'archived')) },
+                ? { content: 'Unarchive product', icon: ArchiveRestore, onAction: () => { act(st => setProductStatus(st, product.id, 'draft')); set('status', 'draft') } }
+                : { content: 'Archive product', icon: Archive, onAction: () => { act(st => setProductStatus(st, product.id, 'archived')); set('status', 'archived') } },
               { content: 'Delete product', icon: Trash2, destructive: true, onAction: () => setConfirmDelete(true) },
             ],
           },
@@ -251,7 +289,7 @@ function Editor({ product, navigate }: { product: StoreProduct; navigate: (path:
                 </BlockStack>
               </Card>
 
-              <MediaCard media={draft.media} onChange={m => set('media', m)} product={product} creatives={creatives} supplierAlt={def?.name ?? product.title} />
+              <MediaCard key={formKey} media={draft.media} onChange={m => set('media', m)} product={product} creatives={creatives} supplierAlt={def?.name ?? product.title} />
 
               {/* ---- pricing ---- */}
               <Card title="Pricing">
@@ -266,22 +304,22 @@ function Editor({ product, navigate }: { product: StoreProduct; navigate: (path:
                       value={draft.compareAtPrice}
                       onChange={v => set('compareAtPrice', v)}
                       placeholder="0.00"
-                      error={capWarn}
+                      error={capError ?? capWarn}
                       helpText="Shown crossed out next to the price."
                       onBlur={() => { const n = parseNum(draft.compareAtPrice); if (n != null) set('compareAtPrice', n > 0 ? moneyInput(n) : '') }}
                     />
                   </InlineGrid>
                   <Divider />
                   <InlineGrid columns={{ xs: 1, md: 3 }} gap="300">
-                    <TextField label="Cost per item" type="currency" prefix="$" value={draft.costPerItem} onChange={v => set('costPerItem', v)} helpText="Customers won't see this"
+                    <TextField label="Cost per item" type="currency" prefix="$" value={draft.costPerItem} onChange={v => set('costPerItem', v)} error={costError} helpText="Customers won't see this"
                       onBlur={() => { const n = parseNum(draft.costPerItem); if (n != null) set('costPerItem', moneyInput(n)) }} />
                     <TextField label="Profit" value={price > 0 ? money(profit) : '--'} readOnly />
                     <TextField label="Margin" value={price > 0 ? pct(margin, 1) : '--'} readOnly />
                   </InlineGrid>
                   <Text as="p" tone="subdued" variant="bodySm">
-                    Current supplier cost: {money(ful.unitCost)} incl. import duty + {money(threePl ? 0 : ful.shipCost)} shipping per unit.
-                    {Math.abs(ful.unitCost + (threePl ? 0 : ful.shipCost) - cost) > 0.5 && (
-                      <> <Link onClick={() => set('costPerItem', moneyInput(ful.unitCost + (threePl ? 0 : ful.shipCost)))}>Update cost per item</Link></>
+                    Current cost: {money(landed.unit)} {threePl ? 'per unit landed in the US warehouse' : 'from the supplier incl. import duty'} + {money(landed.ship)} {threePl ? 'pick, pack & postage' : 'shipping'} per order.
+                    {Math.abs(landed.total - cost) > 0.5 && (
+                      <> <Link onClick={() => set('costPerItem', moneyInput(landed.total))}>Update cost per item</Link></>
                     )}
                   </Text>
                 </BlockStack>
@@ -416,6 +454,8 @@ function Editor({ product, navigate }: { product: StoreProduct; navigate: (path:
                 </BlockStack>
               </Card>
 
+              {/* the game's skill check sits right under Status so it's in view while editing the title and copy */}
+              <PageGradeCard grade={grade} savedScore={product.grade?.score ?? null} dirty={dirty} copyLevel={copyLevel} />
               <Card title="Publishing">
                 <BlockStack gap="200">
                   <Text as="p" variant="headingXs" tone="subdued">Sales channels</Text>
@@ -466,7 +506,6 @@ function Editor({ product, navigate }: { product: StoreProduct; navigate: (path:
                 )}
               </Card>
 
-              <PageGradeCard grade={grade} savedScore={product.grade?.score ?? null} dirty={dirty} copyLevel={copyLevel} />
               <BreakEvenCard s={ps} product={preview} />
               <InsightsCard s={s} product={product} />
               <Box paddingBlock="200">

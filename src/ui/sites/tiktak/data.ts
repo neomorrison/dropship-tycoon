@@ -5,7 +5,8 @@ import type {
 } from '../../../core/types'
 import type { DateRange } from '../../../core/time'
 import { formatDate } from '../../../core/time'
-import { emptyStats, addStats, deliveryLabel, learningProgress, type DeliveryLabel } from '../../../sim/ads'
+import { emptyStats, addStats, deliveryLabel, learningProgress, wouldResetLearning, type DeliveryLabel } from '../../../sim/ads'
+import { BENCHMARKS } from '../../../data/benchmarks'
 import { breakEven } from '../../../sim/store'
 import { amFmt } from '../../kit/adsmanager'
 import type { ChartFormat } from '../../kit/charts'
@@ -166,6 +167,43 @@ export function breakEvenFor(s: GameState, storeProductId: string | null): Break
   const be = breakEven(s, storeProductId)
   if (!(be.breakEvenCpa > 0) || !Number.isFinite(be.breakEvenRoas)) return null
   return { cpa: be.breakEvenCpa, roas: be.breakEvenRoas, product }
+}
+
+// ---------------------------------------------------------------------------
+// Budget edits vs. the learning phase (mirrors sim-ads: a change counts against the budget at the
+// last learning reset until the budget has been left alone for 48h)
+// ---------------------------------------------------------------------------
+const pctText = (x: number) => `${Math.round(Math.abs(x) * 100)}%`
+
+/**
+ * Player-facing warning for a proposed daily budget, or undefined when the sim wouldn't reset
+ * learning. `level` is the entity that owns the budget (a CBO campaign or an ABO ad group).
+ */
+export function budgetResetWarning(s: GameState, level: 'campaign' | 'adset', id: string, next: number): string | undefined {
+  if (!Number.isFinite(next) || next <= 0) return undefined
+  const camp = level === 'campaign' ? s.ads.campaigns.find(c => c.id === id) : s.ads.campaigns.find(c => c.id === s.ads.adSets.find(x => x.id === id)?.campaignId)
+  if (!camp) return undefined
+  const current = level === 'campaign' ? camp.dailyBudget : s.ads.adSets.find(x => x.id === id)?.dailyBudget
+  if (current == null || next === current || !wouldResetLearning(s, level, id, next)) return undefined
+  const sets = s.ads.adSets.filter(x => x.status !== 'deleted' && x.impressions > 0 && (level === 'campaign' ? x.campaignId === id : x.id === id))
+  const lastChange = level === 'campaign' ? camp.lastBudgetChangeHour : sets[0]?.lastBudgetChangeHour
+  const who = level === 'campaign' ? 'every ad group in this campaign' : 'this ad group'
+  const quietH = BENCHMARKS.tiktak.minHoursBetweenBudgetChanges
+  // the anchor that tips the change over the threshold (the set whose baseline moved the most)
+  let anchor = current
+  for (const set of sets) {
+    const stableSince = Math.max(lastChange ?? -Infinity, set.learning.resetHour)
+    const a = s.time.hour - stableSince >= quietH ? current : set.learning.budgetAtReset
+    if (a > 0 && Math.abs(next - a) / a > Math.abs(next - anchor) / anchor) anchor = a
+  }
+  const rule = `Keep changes to ${pctText(BENCHMARKS.tiktak.significantBudgetChange)} or less (${pctText(BENCHMARKS.tiktak.maxBudgetIncreaseInLearning)} while learning), ${quietH}h apart.`
+  const sign = (x: number) => (x >= 0 ? '+' : '−')
+  if (Math.abs(anchor - current) > 0.005 * current) {
+    const d = (next - anchor) / anchor
+    return `Together with your last edit, that's ${sign(d)}${pctText(d)} vs. ${amFmt.money(anchor)}, the budget when learning last reset: ${who} goes back into the learning phase. ${rule}`
+  }
+  const d = (next - current) / current
+  return `A ${sign(d)}${pctText(d)} change sends ${who} back into the learning phase. ${rule}`
 }
 
 // ---------------------------------------------------------------------------
@@ -332,7 +370,7 @@ export const CTA_LABEL: Record<Ad['cta'], string> = { shop_now: 'Shop now', orde
 export const TT_CTAS: Ad['cta'][] = ['shop_now', 'order_now', 'learn_more']
 
 export function bidLabel(c: Campaign): string {
-  return c.bidStrategy === 'cost_cap' ? `Cost cap · ${amFmt.money(c.costCap)}` : 'Lowest cost'
+  return c.bidStrategy === 'cost_cap' ? `Cost cap · ${amFmt.money(c.costCap)}` : 'Maximum delivery'
 }
 export function optimizationLabel(set: AdSet): string {
   return set.optimization === 'add_to_cart' ? 'Add to cart' : 'Complete payment'

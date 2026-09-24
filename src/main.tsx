@@ -17,8 +17,20 @@ try {
   console.warn('event modal handlers failed to register', e)
 }
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-)
+const render = () =>
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  )
+
+if (import.meta.env.DEV) {
+  // DEV ONLY (tree-shaken from production): QA scenarios via ?scenario=<name>&slot=<n>,
+  // plus window.__dt for e2e scripts. See src/dev/boot.ts and scripts/e2e/README.md.
+  import('./dev/boot')
+    .then(m => m.devBoot())
+    .catch(e => console.error('[dev] boot failed', e))
+    .finally(render)
+} else {
+  render()
+}

@@ -215,8 +215,8 @@ function DetailBody({ s, c, navigate, compact }: { s: GameState; c: Creative; na
               <div className="ch-nodata">
                 <Package size={18} />
                 <div>
-                  <b>{c.status === 'ready' ? (perf.ads.length ? 'In ads, waiting for delivery' : 'Not running yet') : 'No data yet'}</b>
-                  <span>{c.status === 'ready' ? 'Launch it in an ad on Fadbook or TikTak. Spend, CTR and hook rate show up here as it delivers.' : 'Once it\'s delivered and running in ads, its numbers show up here.'}</span>
+                  <b>{c.status === 'ready' ? (perf.ads.length ? 'In ads, waiting for delivery' : 'Not running yet') : c.status === 'failed' ? 'Nothing to report' : 'No data yet'}</b>
+                  <span>{c.status === 'ready' ? 'Launch it in an ad on Fadbook or TikTak. Spend, CTR and hook rate show up here as it delivers.' : c.status === 'failed' ? 'No footage was delivered, so this creative never ran. Brief a variation to try again.' : 'Once it\'s delivered and running in ads, its numbers show up here.'}</span>
                 </div>
               </div>
             ) : (
@@ -254,7 +254,9 @@ function DetailBody({ s, c, navigate, compact }: { s: GameState; c: Creative; na
 
           {/* ---- insights ---- */}
           <SectionCard title={<><Lightbulb size={16} /> Insights</>}>
-            {c.status !== 'ready' ? (
+            {c.status === 'failed' ? (
+              <p className="ch-help">No delivery data: this creative never ran.</p>
+            ) : c.status !== 'ready' ? (
               <p className="ch-help">Insights come from real delivery data, so they appear after the creative runs.</p>
             ) : exposure < TIPS_MIN_IMPRESSIONS ? (
               <div className="ch-locked">

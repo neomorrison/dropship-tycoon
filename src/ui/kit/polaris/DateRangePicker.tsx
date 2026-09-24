@@ -40,7 +40,7 @@ export function DateRangePicker({
 }: DateRangePickerProps) {
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState<DateRangeValue>(value)
-  const [view, setView] = useState(() => addMonths(ymOf(value.range.to), -1))
+  const [view, setView] = useState(() => addMonths(ymOf(value.range.to), typeof window === 'undefined' || window.innerWidth >= 820 ? -1 : 0))
   const [fromText, setFromText] = useState('')
   const [toText, setToText] = useState('')
   // two months side by side when the window can fit ~760px of popover
@@ -50,8 +50,9 @@ export function DateRangePicker({
   useEffect(() => {
     if (!open) return
     setDraft(value)
-    setView(addMonths(ymOf(value.range.to), -1))
-  }, [open]) // only on open: keep the draft while the popover is up
+    // the month holding the end date is always on screen (on the right when two months fit)
+    setView(addMonths(ymOf(value.range.to), twoMonths ? -1 : 0))
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps -- only on open: keep the draft while the popover is up
   useEffect(() => {
     setFromText(formatDate(draft.range.from, 'iso'))
     setToText(formatDate(draft.range.to, 'iso'))

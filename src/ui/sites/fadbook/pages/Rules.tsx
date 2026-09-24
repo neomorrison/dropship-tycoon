@@ -160,7 +160,7 @@ export function RuleModal({ s, rule, defaultScope = 'adset', targetIds = [], onC
               ariaLabel="Value"
             />
           </div>
-          <div className="fb-form-row">
+          <div className="fb-inline fb-wrap">
             <span className="fb-small">and Amount spent is greater than</span>
             <AmInput value={minSpend} onChange={setMinSpend} type="currency" prefix="$" width={140} ariaLabel="Minimum spend" />
           </div>
@@ -279,7 +279,7 @@ export default function RulesPage({ s, navigate }: { s: GameState; navigate: (p:
                     <button type="button" className="am-name-link" onClick={() => showEntity(e.level, e.entityId)}>{e.entityName}</button>{' '}
                     <span className="fb-muted fb-small">{e.level === 'adset' ? 'Ad set' : e.level === 'ad' ? 'Ad' : 'Campaign'}</span>
                   </td>
-                  <td><AmTag tone={e.action === 'pause' ? 'neutral' : e.action === 'increase_budget' ? 'green' : 'yellow'}><Zap size={11} /> {e.detail}</AmTag></td>
+                  <td><AmTag tone={e.action === 'pause' ? 'neutral' : e.action === 'increase_budget' ? 'green' : 'yellow'}><Zap size={11} /> {e.detail}</AmTag>{e.trigger && <div className="fb-muted fb-small">{e.trigger}</div>}</td>
                 </tr>
               ))}
             </tbody>

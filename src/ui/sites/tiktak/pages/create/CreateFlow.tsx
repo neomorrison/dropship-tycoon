@@ -3,7 +3,7 @@
 // Also used to add an ad group to an existing campaign or ads to an existing ad group.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
-  ArrowLeft, BadgeDollarSign, CircleAlert, Clapperboard, Download, Eye, Megaphone, MousePointerClick,
+  ArrowLeft, BadgeDollarSign, Check, CircleAlert, Clapperboard, Download, Eye, Megaphone, MousePointerClick,
   ShoppingBag, Smartphone, Sparkles, SquareMousePointer, UsersRound, Wrench, type LucideIcon,
 } from 'lucide-react'
 import type { Ad, Campaign, Creative, Targeting } from '../../../../../core/types'
@@ -34,6 +34,16 @@ interface AdForm { name: string; spark: boolean; productId: string | null; creat
 
 const stamp = (hour: number) => `${formatDate(Math.floor(hour / 24), 'iso').replace(/-/g, '')}${String(hourOfDay(hour)).padStart(2, '0')}00`
 const num = (v: string) => (v.trim() === '' ? NaN : Number(v))
+/** Budgets are whole cents, like the real input. */
+const cents = (v: string) => Math.round(num(v) * 100) / 100
+/** Default names carry a timestamp; the clock is paused while creating, so number repeats like TikTok does. */
+function uniqueName(base: string, taken: Iterable<string>): string {
+  const set = new Set(taken)
+  if (!set.has(base)) return base
+  let i = 2
+  while (set.has(`${base}_${i}`)) i++
+  return `${base}_${i}`
+}
 
 const OBJECTIVES: { group: string; items: { id: string; label: string; icon: LucideIcon }[] }[] = [
   { group: 'Awareness', items: [{ id: 'reach', label: 'Reach', icon: Megaphone }] },
@@ -71,10 +81,12 @@ export default function CreateFlow({ params }: { params: string[] }) {
 
   const hour = s.time.hour
   const [camp, setCamp] = useState<CampForm>(() => ({
-    type: 'manual', name: `Web conversions${stamp(hour)}`, cbo: false, budget: '', bid: 'lowest_cost', costCap: '',
+    type: 'manual', name: uniqueName(`Web conversions${stamp(hour)}`, s.ads.campaigns.filter(c => c.platform === 'tiktak').map(c => c.name)),
+    cbo: false, budget: '', bid: 'lowest_cost', costCap: '',
   }))
   const [group, setGroup] = useState<GroupForm>(() => ({
-    name: `Ad group${stamp(hour)}`, optimization: 'purchase', targeting: { ...DEFAULT_TARGETING }, budget: '', placement: 'auto',
+    name: uniqueName(`Ad group${stamp(hour)}`, s.ads.adSets.filter(x => x.platform === 'tiktak').map(x => x.name)),
+    optimization: 'purchase', targeting: { ...DEFAULT_TARGETING }, budget: '', placement: 'auto',
   }))
   const [ad, setAd] = useState<AdForm>(() => {
     const preCreative = kind === 'creative' ? s.creatives.creatives.find(c => c.id === ref && c.status === 'ready') : undefined
@@ -83,7 +95,7 @@ export default function CreateFlow({ params }: { params: string[] }) {
       catalogId ? (s.store.products.find(p => p.catalogId === catalogId && p.status === 'active') ?? s.store.products.find(p => p.catalogId === catalogId && p.status !== 'archived'))?.id ?? null : null
     const firstActive = s.store.products.find(p => p.status === 'active')?.id ?? s.store.products.find(p => p.status !== 'archived')?.id ?? null
     return {
-      name: `Ad${stamp(hour)}`,
+      name: uniqueName(`Ad${stamp(hour)}`, s.ads.ads.filter(a => a.platform === 'tiktak').map(a => a.name)),
       spark: !!prePost,
       productId: prePost ? prePost.storeProductId : preCreative ? productFor(preCreative.catalogId) : firstActive,
       creativeIds: preCreative ? [preCreative.id] : [],
@@ -119,11 +131,11 @@ export default function CreateFlow({ params }: { params: string[] }) {
     if (!camp.name.trim()) e.name = 'Enter a campaign name.'
     if (isSmart && !smartUnlocked) e.type = `Smart+ campaigns unlock at Media Buying level ${MB_GATES.advantage}.`
     if (cbo) {
-      const chk = checkBudgetEdit('tiktak', null, num(camp.budget), { level: 'campaign' })
+      const chk = checkBudgetEdit('tiktak', null, cents(camp.budget), { level: 'campaign' })
       if (chk.error) e.budget = camp.budget.trim() ? chk.error : 'Enter a campaign budget.'
     }
     if (!Object.keys(e).length) {
-      const g = validateCampaignInput(s, { platform: 'tiktak', accountId: acc.id, name: camp.name, kind: isSmart ? 'advantage' : 'manual', budgetMode: cbo ? 'cbo' : 'abo', dailyBudget: cbo ? num(camp.budget) : null, bidStrategy: 'lowest_cost' })
+      const g = validateCampaignInput(s, { platform: 'tiktak', accountId: acc.id, name: camp.name, kind: isSmart ? 'advantage' : 'manual', budgetMode: cbo ? 'cbo' : 'abo', dailyBudget: cbo ? cents(camp.budget) : null, bidStrategy: 'lowest_cost' })
       if (g) e.general = g
     }
     return e
@@ -133,14 +145,14 @@ export default function CreateFlow({ params }: { params: string[] }) {
     const e: Partial<Record<'name' | 'budget' | 'targeting' | 'costCap', string>> = {}
     if (!group.name.trim()) e.name = 'Enter an ad group name.'
     if (!cbo) {
-      const chk = checkBudgetEdit('tiktak', null, num(group.budget), { level: 'adset' })
+      const chk = checkBudgetEdit('tiktak', null, cents(group.budget), { level: 'adset' })
       if (chk.error) e.budget = group.budget.trim() ? chk.error : 'Enter an ad group budget.'
     }
     const t = validateTargeting(s, 'tiktak', group.targeting)
     if (t) e.targeting = t
     if (mode === 'new' && camp.bid === 'cost_cap') {
       if (!costCapUnlocked) e.costCap = `Cost cap unlocks at Media Buying level ${MB_GATES.costCap}.`
-      else if (!(num(camp.costCap) > 0)) e.costCap = 'Enter a cost per conversion goal.'
+      else if (!(cents(camp.costCap) > 0)) e.costCap = 'Enter a cost per conversion goal.'
     }
     return e
   }
@@ -197,8 +209,8 @@ export default function CreateFlow({ params }: { params: string[] }) {
       let campaignId = existingCampaign?.id ?? ''
       if (mode === 'new') {
         const id = createCampaign(st, {
-          platform: 'tiktak', accountId: acc.id, name: camp.name, kind: isSmart ? 'advantage' : 'manual', budgetMode: cbo ? 'cbo' : 'abo',
-          dailyBudget: cbo ? num(camp.budget) : null, bidStrategy: camp.bid, costCap: camp.bid === 'cost_cap' ? num(camp.costCap) : null,
+          platform: 'tiktak', accountId: acc.id, name: camp.name.trim(), kind: isSmart ? 'advantage' : 'manual', budgetMode: cbo ? 'cbo' : 'abo',
+          dailyBudget: cbo ? cents(camp.budget) : null, bidStrategy: camp.bid, costCap: camp.bid === 'cost_cap' ? cents(camp.costCap) : null,
         })
         if (!id) { rollback('The campaign couldn\'t be created. Check the notification for details.'); return }
         madeCampaigns.push(id)
@@ -207,7 +219,7 @@ export default function CreateFlow({ params }: { params: string[] }) {
       let adSetId = existingSet?.id ?? ''
       if (mode !== 'ad') {
         const id = createAdSet(st, {
-          campaignId, name: group.name, dailyBudget: cbo ? null : num(group.budget), targeting: group.targeting, optimization: group.optimization,
+          campaignId, name: group.name.trim(), dailyBudget: cbo ? null : cents(group.budget), targeting: group.targeting, optimization: group.optimization,
         })
         if (!id) { rollback('The ad group couldn\'t be created. Check the notification for details.'); return }
         madeSets.push(id)
@@ -308,8 +320,8 @@ export default function CreateFlow({ params }: { params: string[] }) {
       </AmCard>
       <AmCard title="Campaign details">
         <div className="tt-fields">
-          <AmField label="Campaign name" error={show('campaign', 'name')} footerRight={<span className="tt-faint tt-small">{camp.name.length}/512</span>}>
-            <AmInput value={camp.name} onChange={v => setCamp(c => ({ ...c, name: v.slice(0, 512) }))} error={!!show('campaign', 'name')} />
+          <AmField label="Campaign name" error={show('campaign', 'name')} footerRight={<span className="tt-faint tt-small">{camp.name.length}/400</span>}>
+            <AmInput value={camp.name} onChange={v => setCamp(c => ({ ...c, name: v.slice(0, 400) }))} error={!!show('campaign', 'name')} />
           </AmField>
           <AmField
             label="Campaign budget optimization"
@@ -379,9 +391,9 @@ export default function CreateFlow({ params }: { params: string[] }) {
       </AmCard>
       <AmCard title="Placements">
         <div className="tt-fields">
-          <AmRadio checked={group.placement === 'auto'} onChange={() => setGroup(g => ({ ...g, placement: 'auto' }))} label="Automatic placement" description="Show ads wherever they're likely to perform best." />
-          <AmRadio checked={group.placement === 'select'} onChange={() => setGroup(g => ({ ...g, placement: 'select' }))} label="Select placement" />
-          {group.placement === 'select' && (
+          <AmRadio checked={isSmart || group.placement === 'auto'} onChange={() => setGroup(g => ({ ...g, placement: 'auto' }))} label="Automatic placement" description={isSmart ? 'Smart+ campaigns always use automatic placement.' : 'Show ads wherever they\'re likely to perform best.'} />
+          <AmRadio checked={!isSmart && group.placement === 'select'} disabled={isSmart} onChange={() => setGroup(g => ({ ...g, placement: 'select' }))} label="Select placement" />
+          {!isSmart && group.placement === 'select' && (
             <div style={{ paddingLeft: 26 }}>
               <label className="tt-row" style={{ gap: 8, fontSize: 13 }}>
                 <Smartphone size={16} /> <b>TikTak</b> <span className="tt-faint tt-small">For You feed · the only placement for Web conversions in the US</span>
@@ -413,7 +425,7 @@ export default function CreateFlow({ params }: { params: string[] }) {
           <AmField label="Optimization goal"><span style={{ fontSize: 13 }}>Conversion · {group.optimization === 'purchase' ? 'Complete payment' : 'Add to cart'}</span></AmField>
           {mode === 'new' ? (
             <>
-              <AmField label="Bid strategy" labelTip="Lowest cost spends your whole budget to get as many conversions as possible. Cost cap keeps the average cost per conversion near your goal but may spend less.">
+              <AmField label="Bid strategy" labelTip="Maximum delivery spends your whole budget to get as many conversions as possible. Cost cap keeps the average cost per conversion near your goal but may spend less.">
                 <AmSegmented
                   value={camp.bid}
                   onChange={v => setCamp(c => ({ ...c, bid: v }))}
@@ -429,7 +441,7 @@ export default function CreateFlow({ params }: { params: string[] }) {
               )}
             </>
           ) : (
-            <AmField label="Bid strategy"><span style={{ fontSize: 13 }}>{existingCampaign ? bidLabel(existingCampaign) : 'Lowest cost'} (campaign setting)</span></AmField>
+            <AmField label="Bid strategy"><span style={{ fontSize: 13 }}>{existingCampaign ? bidLabel(existingCampaign) : 'Maximum delivery'} (campaign setting)</span></AmField>
           )}
           <AmField label="Billing event"><span style={{ fontSize: 13 }}>oCPM</span></AmField>
           <AmField label="Delivery type"><span style={{ fontSize: 13 }}>Standard</span></AmField>
@@ -487,6 +499,11 @@ export default function CreateFlow({ params }: { params: string[] }) {
                 error={!!show('ad', 'product')}
               />
             </AmField>
+          )}
+          {!ad.spark && products.length === 0 && (
+            <AmNotice tone="info" actions={<AmButton size="sm" onClick={() => openSite('shopifly', 'products')}>Open Shopifly</AmButton>}>
+              TikTak ads send people to a product page. Add a product to your Shopifly store first.
+            </AmNotice>
           )}
           {!ad.spark && product && product.status !== 'active' && (
             <AmNotice tone="warning" actions={<AmButton size="sm" onClick={() => openSite('shopifly', `products/${product.id}`)}>Open in Shopifly</AmButton>}>
@@ -607,7 +624,46 @@ export default function CreateFlow({ params }: { params: string[] }) {
         {!compact && <span className="tt-faint tt-small" style={{ whiteSpace: 'nowrap' }}>{acc.name}</span>}
       </header>
       <div className="tt-create-body" ref={bodyRef}>
-        <div className="tt-create-grid">
+        <div className={cx('tt-create-grid', !compact && 'tt-create-grid-outline')}>
+          {!compact && (
+            <nav className="tt-outline" aria-label="Campaign structure">
+              {mode !== 'new' && existingCampaign && (
+                <div className="tt-outline-item tt-outline-fixed">
+                  <span className="tt-outline-icon"><Megaphone size={14} /></span>
+                  <span className="tt-outline-text"><span className="tt-outline-kind">Campaign</span><span className="tt-outline-name">{existingCampaign.name}</span></span>
+                </div>
+              )}
+              {mode === 'ad' && existingSet && (
+                <div className="tt-outline-item tt-outline-fixed tt-outline-l1">
+                  <span className="tt-outline-icon"><UsersRound size={14} /></span>
+                  <span className="tt-outline-text"><span className="tt-outline-kind">Ad group</span><span className="tt-outline-name">{existingSet.name}</span></span>
+                </div>
+              )}
+              {steps.map(st => {
+                const def = stepDefs.find(d => d.id === st)!
+                const depth = st === 'campaign' ? 0 : st === 'adgroup' ? 1 : 2
+                const name = st === 'campaign' ? camp.name : st === 'adgroup' ? group.name : ad.name
+                const Icon = st === 'campaign' ? Megaphone : st === 'adgroup' ? UsersRound : Clapperboard
+                return (
+                  <button
+                    key={st}
+                    type="button"
+                    className={cx('tt-outline-item', `tt-outline-l${depth}`, st === step && 'tt-outline-on', def.status === 'error' && 'tt-outline-err')}
+                    aria-current={st === step ? 'step' : undefined}
+                    onClick={() => goto(st)}
+                  >
+                    <span className="tt-outline-icon"><Icon size={14} /></span>
+                    <span className="tt-outline-text">
+                      <span className="tt-outline-kind">{def.label}</span>
+                      <span className="tt-outline-name">{name.trim() || 'Untitled'}</span>
+                    </span>
+                    {def.status === 'complete' && <Check size={14} className="tt-outline-ok" />}
+                    {def.status === 'error' && <CircleAlert size={14} className="tt-outline-bad" />}
+                  </button>
+                )
+              })}
+            </nav>
+          )}
           <div className="tt-create-form">
             {step === 'campaign' && campaignStep}
             {step === 'adgroup' && groupStep}

@@ -1,5 +1,5 @@
 // AliExprez — shared presentational components (ax- prefix).
-import type { MouseEvent, ReactNode } from 'react'
+import { memo, type MouseEvent, type ReactNode } from 'react'
 import { Heart, Play, Star, TrendingDown, TrendingUp, X, ZoomIn } from 'lucide-react'
 import type { ProductDef } from '../../../core/types'
 import { productImage } from '../../../core/assets'
@@ -33,12 +33,16 @@ export function ProductShot({ p, variant = 0, className, rounded = 0, eager, pla
     />
   )
   const v = variant % 7
+  // colour shot: one tile per option (2–4), labelled with the real option count
+  const colorVar = p.variants.find(x => /colou?r/i.test(x.name))
+  const optCount = (colorVar ?? p.variants[0])?.values.length ?? 0
+  const tiles = Math.max(2, Math.min(4, optCount || 4))
   return (
     <div className={cx('ax-shot', `ax-shot-v${v}`, className)} style={{ borderRadius: rounded }}>
       {v === SHOT_COLORS ? (
-        <div className="ax-shot-grid">
-          {[0, 1, 2, 3].map(i => <div key={i} className={`ax-shot-cell ax-shot-hue${i}`}>{img()}</div>)}
-          <span className="ax-shot-banner">{p.variants.find(x => /colou?r/i.test(x.name))?.values.length ?? 4} options available</span>
+        <div className={cx('ax-shot-grid', `ax-shot-grid-${tiles}`)}>
+          {Array.from({ length: tiles }, (_, i) => <div key={i} className={`ax-shot-cell ax-shot-hue${i}`}>{img()}</div>)}
+          <span className="ax-shot-banner">{optCount > 1 ? `${optCount} ${colorVar ? 'colors' : 'options'} available` : 'Multiple colors'}</span>
         </div>
       ) : v === SHOT_FEATURES ? (
         <>
@@ -141,7 +145,15 @@ export function HeartButton({ id, active, count, className }: { id: string; acti
 // Product card (search grid & rows)
 // ---------------------------------------------------------------------------
 export interface CardFlags { fav: boolean; imported?: boolean; sample?: 'owned' | 'shipping' }
-export function ProductCard({ row, flags, onOpen, compact, deal }: {
+/**
+ * Memoized: grids render 20–40 cards and the parent re-renders with the game clock. `onOpen`
+ * is always "open this product" (a fresh arrow each render), so it is left out of the comparison.
+ */
+export const ProductCard = memo(ProductCardInner, (a, b) =>
+  a.row === b.row && a.compact === b.compact && a.deal === b.deal &&
+  a.flags.fav === b.flags.fav && a.flags.imported === b.flags.imported && a.flags.sample === b.flags.sample)
+
+function ProductCardInner({ row, flags, onOpen, compact, deal }: {
   row: Row; flags: CardFlags; onOpen: (id: string) => void; compact?: boolean; deal?: boolean
 }) {
   const { p, l } = row

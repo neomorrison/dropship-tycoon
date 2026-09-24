@@ -95,6 +95,8 @@ export function processBills(s: GameState, day: number): void {
     const acct = pay(s, owed, {
       category: bill.category, memo: wasLate ? `${bill.name} (past due)` : bill.name, business: bill.business,
       prefer: bill.payWith, strict: BANK_ONLY.includes(bill.category),
+      // business subscriptions (plan, Mineo, domain renewals) book to the same P&L line as their first charge
+      ...(bill.business && bill.category === 'subscription' ? { pnl: 'apps' as const } : {}),
     })
     const h = handlerFor(bill.ref)
     if (acct) {

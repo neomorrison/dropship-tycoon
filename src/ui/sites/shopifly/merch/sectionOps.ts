@@ -32,6 +32,11 @@ export function moveSection(sections: PageSection[], id: SectionId, dir: -1 | 1)
   return next
 }
 
+/** Whether moveSection() would change anything (sections only move within their page zone). */
+export function canMoveSection(sections: PageSection[], id: SectionId, dir: -1 | 1): boolean {
+  return moveSection(sections, id, dir) !== sections
+}
+
 /** Drag & drop: put `fromId` where `toId` is (same zone only). */
 export function reorderSection(sections: PageSection[], fromId: SectionId, toId: SectionId): PageSection[] {
   if (fromId === toId || SECTION_ZONE[fromId] !== SECTION_ZONE[toId]) return sections

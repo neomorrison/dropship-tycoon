@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { Landmark } from 'lucide-react'
 import type { GameState } from '../../../core/types'
 import { formatDate, yearOf } from '../../../core/time'
-import { TAX_RULES, payTaxes, setTaxAutopay, taxDueDates } from '../../../sim/finance'
+import { TAX_RULES, nextTaxDue, payTaxes, setTaxAutopay, taxDueDates } from '../../../sim/finance'
 import { taxInfo } from './bankData'
 import { Amount, Btn, FlashBar, KV, Notice, Panel } from './ui'
 import { SiteLayer } from './SiteLayer'
@@ -15,8 +15,14 @@ export function TaxesPage({ s }: { s: GameState }) {
   const [flash, setFlash] = useFlash(6000)
   const [confirm, setConfirm] = useState(false)
   const outstanding = t.owed + t.pending
-  const schedule = safe(() => taxDueDates(yearOf(today)), [])
+  // In January the next payment (Q4) belongs to last year's taxes: show that year's schedule and numbers
+  const taxYear = safe(() => nextTaxDue(today).year, yearOf(today))
+  const priorYear = taxYear < yearOf(today)
+  const schedule = safe(() => taxDueDates(taxYear), [])
   const payments = [...(s.finance.taxes.payments ?? [])].reverse()
+  const paidFor = (label: string) => (s.finance.taxes.payments ?? []).filter(p => p.label.endsWith(label)).reduce((a, p) => a + p.amount, 0)
+  const yearProfit = priorYear ? s.finance.taxes.priorYearProfit ?? 0 : t.ytdProfit
+  const yearPaid = priorYear ? s.finance.taxes.priorYearPaid ?? 0 : s.finance.taxes.paidYtd
 
   if (!t.enabled) {
     return (
@@ -71,18 +77,26 @@ export function TaxesPage({ s }: { s: GameState }) {
               </div>
             </div>
           </Panel>
-          <Panel title={`${yearOf(today)} payment schedule`} pad={false}>
+          <Panel title={`${taxYear} payment schedule`} pad={false}>
             <div className="bk-table-wrap">
               <table className="bk-table">
                 <thead><tr><th>Quarter</th><th>Due date</th><th>Status</th></tr></thead>
                 <tbody>
-                  {schedule.map(q => (
-                    <tr key={q.day}>
-                      <td>{q.label}</td>
-                      <td>{formatDate(q.day, 'short')}</td>
-                      <td>{q.day < today ? <span className="bk-pill">Past</span> : q.day === t.dueDay ? <span className="bk-pill is-info">Next</span> : <span className="bk-pill">Upcoming</span>}</td>
-                    </tr>
-                  ))}
+                  {schedule.map(q => {
+                    const paid = paidFor(q.label)
+                    return (
+                      <tr key={q.day}>
+                        <td>{q.label}</td>
+                        <td>{formatDate(q.day, 'short')}</td>
+                        <td>
+                          {paid > 0 ? <span className="bk-pill is-ok">Paid {usd(paid)}</span>
+                            : q.day === t.dueDay ? <span className="bk-pill is-info">Next</span>
+                              : q.day < today ? <span className="bk-pill">{t.owed > 0 ? 'Unpaid' : 'Nothing due'}</span>
+                                : <span className="bk-pill">Upcoming</span>}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -105,11 +119,12 @@ export function TaxesPage({ s }: { s: GameState }) {
           </Panel>
         </div>
         <aside className="bk-col-side">
-          <Panel title="Year to date">
-            <KV label="Business profit" value={<Amount n={t.ytdProfit} />} />
-            <KV label={`Tax at ${Math.round(TAX_RULES.rate * 100)}%`} value={<Amount n={Math.max(0, t.ytdProfit * TAX_RULES.rate)} />} />
-            <KV label="Paid this year" value={<Amount n={s.finance.taxes.paidYtd} />} />
+          <Panel title={priorYear ? `${taxYear} tax year` : 'Year to date'}>
+            <KV label="Business profit" value={<Amount n={yearProfit} />} sub={priorYear ? 'Full year' : `Through ${formatDate(today - 1, 'md')}`} />
+            <KV label={`Tax at ${Math.round(TAX_RULES.rate * 100)}%`} value={<Amount n={Math.max(0, yearProfit * TAX_RULES.rate)} />} />
+            <KV label={priorYear ? `Paid for ${taxYear}` : 'Paid this year'} value={<Amount n={yearPaid} />} />
             {t.penalties > 0 && <KV label="Penalties" value={<Amount n={t.penalties} />} />}
+            {priorYear && <KV label={`${yearOf(today)} business profit so far`} value={<Amount n={t.ytdProfit} />} sub={`First ${yearOf(today)} payment due Apr 15`} />}
           </Panel>
           <Panel title="Autopay">
             <label className={`bk-switch${t.autopay ? ' is-on' : ''}`}>

@@ -5,3 +5,5 @@ dist
 .env*
 scripts/.cache
 .snapshot
+scripts/e2e/tmp
+scripts/e2e/out

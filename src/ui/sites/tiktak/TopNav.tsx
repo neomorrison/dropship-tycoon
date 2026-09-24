@@ -9,6 +9,7 @@ import { AmMenu, type AmMenuSection } from '../../kit/adsmanager'
 import { cx, initials, tileColor } from '../../kit/common'
 import { accountDisplayId, accountStatusText } from './data'
 import { selectAccount, useTt } from './common'
+import { useTtUi } from './uiState'
 
 export type NavKey = 'dashboard' | 'campaign' | 'tools' | 'analytics' | 'assets' | 'account'
 
@@ -115,7 +116,14 @@ function Notifications() {
   const markRead = (ids: string[]) => act(s => { for (const n of s.notifications) if (ids.includes(n.id)) n.read = true })
   const open = (n: GameNotification) => {
     markRead([n.id])
-    navigate(n.path ?? 'dashboard')
+    if (n.path) { navigate(n.path); return }
+    // review results carry no link: show the ad in the Ad tab
+    if (/^Ad (rejected|approved)/i.test(n.title)) {
+      useTtUi.getState().set({ level: 'ad', statusFilter: /rejected/i.test(n.title) ? 'rejected' : 'all_but_deleted', search: '', selected: { campaign: [], adset: [], ad: [] } })
+      navigate('campaign/ad')
+      return
+    }
+    navigate('dashboard')
   }
   const when = (h: number) => (hour - h < 24 ? formatClock(h) : formatDate(Math.floor(h / 24), 'md'))
   return (
@@ -185,12 +193,14 @@ export function TopNav({ path, account, accounts }: { path: string; account: AdA
           <div className="tt-nav-right">
             {account && <AccountSwitcher account={account} accounts={accounts} compact />}
             {account && <Notifications />}
-            <button type="button" className="tt-iconbtn" aria-label={sheet ? 'Close menu' : 'Open menu'} onClick={() => setSheet(v => !v)}>
-              {sheet ? <X size={20} strokeWidth={2} /> : <Menu size={20} strokeWidth={2} />}
-            </button>
+            {account && (
+              <button type="button" className="tt-iconbtn" aria-label={sheet ? 'Close menu' : 'Open menu'} onClick={() => setSheet(v => !v)}>
+                {sheet ? <X size={20} strokeWidth={2} /> : <Menu size={20} strokeWidth={2} />}
+              </button>
+            )}
           </div>
         </header>
-        {sheet && (
+        {sheet && account && (
           <nav className="tt-menu-sheet" aria-label="Main menu">
             {NAV.map(n => n.items ? (
               <div key={n.key}>

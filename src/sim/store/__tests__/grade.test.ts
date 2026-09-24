@@ -30,7 +30,8 @@ describe('gradePage', () => {
     const p = naive(s)
     const g = gradePage(s, p)
     expect(p.title).toBe(WINNER.supplierTitle)
-    expect(p.price).toBe(12.99)
+    // DSerz-style default: landed cost (8.45 unit incl. duty + 2.50 shipping) × 2, rounded up to .99
+    expect(p.price).toBe(21.99)
     expect(g.score).toBeLessThan(45)
     expect(g.cvrMult).toBeLessThan(0.7)
     const title = g.factors.find(f => f.key === 'title')!

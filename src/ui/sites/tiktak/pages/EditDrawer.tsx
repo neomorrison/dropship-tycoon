@@ -7,11 +7,11 @@ import type { DateRange } from '../../../../core/time'
 import { formatDate } from '../../../../core/time'
 import {
   MB_GATES, creativeInsights, deliveryLabel, duplicateEntity, featureUnlocked, learningProgress, requestAdReview, setEntityStatus,
-  updateAd, updateAdSet, updateCampaign, validateTargeting, wouldResetLearning, TIPS_MIN_IMPRESSIONS, creativeImpressions,
+  updateAd, updateAdSet, updateCampaign, validateTargeting, TIPS_MIN_IMPRESSIONS, creativeImpressions,
 } from '../../../../sim/ads'
 import {
   AmButton, AmCard, AmField, AmInput, AmModal, AmNotice, AmSegmented, AmSelect, SideDrawer, StatusCell, amFmt, checkBudgetEdit,
-  learningResetThreshold, minDailyBudget,
+  minDailyBudget,
 } from '../../../kit/adsmanager'
 import { LineChartCard, CHART_COLORS } from '../../../kit/charts'
 import { AdPreview } from '../../../kit/phone'
@@ -20,7 +20,7 @@ import { TriangleAlert } from 'lucide-react'
 import { BENCHMARKS } from '../../../../data/benchmarks'
 import { useGame, useTt } from '../common'
 import {
-  CTA_LABEL, METRICS, TT_CTAS, accountData, adsUnder, bidLabel, breakEvenFor, dailySeries, identityName, landingProductOf,
+  CTA_LABEL, METRICS, TT_CTAS, accountData, adsUnder, bidLabel, breakEvenFor, budgetResetWarning, dailySeries, identityName, landingProductOf,
   optimizationLabel, productUrl, entityDisplayId, retentionSteps, type MetricId,
 } from '../data'
 import { TargetingEditor, targetingSummary } from './create/Targeting'
@@ -123,19 +123,15 @@ function EntityActions({ level, id, onClose }: { level: AdLevel; id: string; onC
   )
 }
 
-function budgetWarning(s: GameState, level: 'campaign' | 'adset', id: string, current: number | null, next: number, learning: boolean, lastChangeHour?: number): { error?: string; warning?: string; note?: string } {
-  const inLearning = BENCHMARKS.tiktak.maxBudgetIncreaseInLearning
-  const thr = learning ? Math.max(learningResetThreshold('tiktak'), inLearning) : learningResetThreshold('tiktak')
-  const chk = checkBudgetEdit('tiktak', current, next, { level, threshold: thr })
+function budgetWarning(s: GameState, level: 'campaign' | 'adset', id: string, current: number | null, next: number, lastChangeHour?: number): { error?: string; warning?: string; note?: string } {
+  const chk = checkBudgetEdit('tiktak', current, next, { level })
   if (chk.error) return { error: chk.error }
   // the sim knows the real baseline (budget at the last reset, re-anchored after 48 quiet hours)
-  const resets = Number.isFinite(next) && next !== current && wouldResetLearning(s, level, id, next)
-  const pct = current ? Math.round(Math.abs((next - current) / current) * 100) : 0
-  const warning = resets
-    ? `This ${pct}% change is a significant edit and will send ${level === 'campaign' ? 'the ad groups' : 'this ad group'} back into the learning phase. TikTak recommends changes of ${Math.round(learningResetThreshold('tiktak') * 100)}% or less (${Math.round(inLearning * 100)}% while learning), at least 48 hours apart.`
-    : undefined
+  const warning = next !== current ? budgetResetWarning(s, level, id, next) : undefined
   const hoursSince = lastChangeHour != null ? s.time.hour - lastChangeHour : Infinity
-  const note = hoursSince < 48 && next !== current ? `The budget was last changed ${Math.max(1, Math.round(hoursSince))}h ago. TikTak recommends waiting at least 48 hours between budget edits.` : undefined
+  const note = !warning && hoursSince < BENCHMARKS.tiktak.minHoursBetweenBudgetChanges && next !== current
+    ? `The budget was last changed ${Math.max(1, Math.round(hoursSince))}h ago. TikTak recommends waiting at least ${BENCHMARKS.tiktak.minHoursBetweenBudgetChanges} hours between budget edits.`
+    : undefined
   return { warning, note }
 }
 
@@ -146,9 +142,8 @@ function CampaignSettings({ s, c, onClose }: { s: GameState; c: Campaign; onClos
   const [costCap, setCostCap] = useState(c.costCap != null ? String(c.costCap) : '')
   const costCapOk = featureUnlocked(s, 'costCap')
   const deleted = c.status === 'deleted'
-  const nextBudget = Number(budget)
-  const learning = s.ads.adSets.some(x => x.campaignId === c.id && x.status === 'active' && x.learning.state === 'learning')
-  const bw = c.budgetMode === 'cbo' ? budgetWarning(s, 'campaign', c.id, c.dailyBudget, nextBudget, learning, c.lastBudgetChangeHour) : {}
+  const nextBudget = budget.trim() === '' ? NaN : Math.round(Number(budget) * 100) / 100
+  const bw = c.budgetMode === 'cbo' ? budgetWarning(s, 'campaign', c.id, c.dailyBudget, nextBudget, c.lastBudgetChangeHour) : {}
   const be = breakEvenFor(s, landingProductOf(s.ads.ads.filter(a => a.campaignId === c.id)))
   const dirty = name.trim() !== c.name || (c.budgetMode === 'cbo' && nextBudget !== c.dailyBudget) || bid !== c.bidStrategy || (bid === 'cost_cap' && Number(costCap) !== c.costCap)
   const costCapErr = bid === 'cost_cap' && !(Number(costCap) > 0) ? 'Enter a cost per conversion goal.' : undefined
@@ -169,7 +164,7 @@ function CampaignSettings({ s, c, onClose }: { s: GameState; c: Campaign; onClos
       <StatusBlock s={s} level="campaign" id={c.id} />
       <AmCard title="Campaign details">
         <div className="tt-fields">
-          <AmField label="Campaign name"><AmInput value={name} onChange={setName} disabled={deleted} /></AmField>
+          <AmField label="Campaign name" error={name.trim() ? undefined : 'Enter a campaign name.'}><AmInput value={name} onChange={setName} disabled={deleted} error={!name.trim()} /></AmField>
           <div className="tt-kv" style={{ gridTemplateColumns: 'minmax(120px, max-content) 1fr' }}>
             <dt>Objective</dt><dd>Web conversions</dd>
             <dt>Campaign type</dt><dd>{c.kind === 'advantage' ? 'Smart+ campaign' : 'Manual campaign'}</dd>
@@ -201,7 +196,7 @@ function CampaignSettings({ s, c, onClose }: { s: GameState; c: Campaign; onClos
       {!deleted && (
         <Footer>
           <AmButton onClick={onClose}>Cancel</AmButton>
-          <AmButton variant="primary" disabled={!dirty || !!bw.error || !!costCapErr} onClick={save}>Save</AmButton>
+          <AmButton variant="primary" disabled={!dirty || !name.trim() || !!bw.error || !!costCapErr} onClick={save}>Save</AmButton>
         </Footer>
       )}
     </>
@@ -215,8 +210,8 @@ function AdGroupSettings({ s, set, onClose }: { s: GameState; set: AdSet; onClos
   const [opt, setOpt] = useState(set.optimization)
   const [targeting, setTargeting] = useState<Targeting>(set.targeting)
   const deleted = set.status === 'deleted'
-  const nextBudget = Number(budget)
-  const bw = c.budgetMode === 'abo' ? budgetWarning(s, 'adset', set.id, set.dailyBudget, nextBudget, set.learning.state === 'learning', set.lastBudgetChangeHour) : {}
+  const nextBudget = budget.trim() === '' ? NaN : Math.round(Number(budget) * 100) / 100
+  const bw = c.budgetMode === 'abo' ? budgetWarning(s, 'adset', set.id, set.dailyBudget, nextBudget, set.lastBudgetChangeHour) : {}
   const targetingChanged = JSON.stringify(targeting) !== JSON.stringify(set.targeting)
   const tErr = targetingChanged ? validateTargeting(s, 'tiktak', targeting) : null
   const dirty = name.trim() !== set.name || (c.budgetMode === 'abo' && nextBudget !== set.dailyBudget) || opt !== set.optimization || targetingChanged
@@ -237,7 +232,7 @@ function AdGroupSettings({ s, set, onClose }: { s: GameState; set: AdSet; onClos
       <StatusBlock s={s} level="adset" id={set.id} />
       <AmCard title="Ad group details">
         <div className="tt-fields">
-          <AmField label="Ad group name"><AmInput value={name} onChange={setName} disabled={deleted} /></AmField>
+          <AmField label="Ad group name" error={name.trim() ? undefined : 'Enter an ad group name.'}><AmInput value={name} onChange={setName} disabled={deleted} error={!name.trim()} /></AmField>
           <div className="tt-kv" style={{ gridTemplateColumns: 'minmax(120px, max-content) 1fr' }}>
             <dt>Campaign</dt><dd>{c.name}</dd>
             <dt>Placement</dt><dd>TikTak</dd>
@@ -266,7 +261,7 @@ function AdGroupSettings({ s, set, onClose }: { s: GameState; set: AdSet; onClos
       {!deleted && (
         <Footer>
           <AmButton onClick={onClose}>Cancel</AmButton>
-          <AmButton variant="primary" disabled={!dirty || !!bw.error || !!tErr} onClick={save}>Save</AmButton>
+          <AmButton variant="primary" disabled={!dirty || !name.trim() || !!bw.error || !!tErr} onClick={save}>Save</AmButton>
         </Footer>
       )}
     </>
@@ -303,7 +298,7 @@ function AdSettings({ s, ad, onClose }: { s: GameState; ad: Ad; onClose: () => v
       )}
       <AmCard title="Ad details">
         <div className="tt-fields">
-          <AmField label="Ad name"><AmInput value={name} onChange={setName} disabled={deleted} /></AmField>
+          <AmField label="Ad name" error={name.trim() ? undefined : 'Enter an ad name.'}><AmInput value={name} onChange={setName} disabled={deleted} error={!name.trim()} /></AmField>
           {spark ? (
             <AmField label="Ad text" help="Spark Ads use the original post's caption."><AmInput value={ad.primaryText} disabled /></AmField>
           ) : (
@@ -342,7 +337,7 @@ function AdSettings({ s, ad, onClose }: { s: GameState; ad: Ad; onClose: () => v
       {!deleted && (
         <Footer>
           <AmButton onClick={onClose}>Cancel</AmButton>
-          <AmButton variant="primary" disabled={!dirty || !!textErr} onClick={save}>Save</AmButton>
+          <AmButton variant="primary" disabled={!dirty || !name.trim() || !!textErr} onClick={save}>Save</AmButton>
         </Footer>
       )}
     </>

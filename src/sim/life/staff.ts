@@ -361,7 +361,8 @@ function ugcBrief(s: GameState, m: StaffMember, catalogId: string) {
   const patterns = HOOKS[hook]?.textPatterns ?? ['Wait for it…']
   const hookText = m.skill <= 2 && chance(s, 0.5) ? 'OMG you NEED this!!' : fillPattern(pick(s, patterns), phrase)
   const title = s.store.products.find(x => x.catalogId === catalogId && x.status === 'active')?.title ?? p.name
-  const shortName = title.split(/\s+[—–|-]\s+/)[0].split(/\s+/).slice(0, 4).join(' ').replace(/[,:;]+$/, '')
+  // "Electric Spin Scrubber: No More Scrubbing" → "Electric Spin Scrubber" (cut at the benefit, not mid-phrase)
+  const shortName = title.split(/\s+[—–|-]\s+|:\s/)[0].split(/\s+/).slice(0, 4).join(' ').replace(/[,:;]+$/, '')
   return {
     catalogId, name: `${shortName} · ${FORMATS[format]?.name ?? format} · ${first(m.name)}`,
     format, hook, angle, beats, hookText, script: '', producer: 'staff' as const, creatorId: m.id,

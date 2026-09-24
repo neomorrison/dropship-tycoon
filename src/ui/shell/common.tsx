@@ -1,7 +1,7 @@
 // Small shared building blocks for the shell (sh- prefix).
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import clsx from 'clsx'
-import type { Hour, Shift, JobState } from '../../core/types'
+import type { Activity, Hour, Shift, JobState } from '../../core/types'
 import { siteDef } from '../sites/registry'
 import type { SiteId } from '../../core/types'
 
@@ -146,18 +146,18 @@ export function ProgressBar({ value, tone = 'accent', className }: { value: numb
 }
 
 /** Close on outside pointerdown / Escape. Escape is marked handled (defaultPrevented) for the global shortcut handler. */
-export function useDismiss(open: boolean, onClose: () => void, refs: Array<{ current: HTMLElement | null }>) {
+export function useDismiss(open: boolean, onClose: (reason: 'outside' | 'escape', e: Event) => void, refs: Array<{ current: HTMLElement | null }>) {
   useEffect(() => {
     if (!open) return
     const onDown = (e: PointerEvent) => {
       const t = e.target as Node | null
       if (t && refs.some(r => r.current?.contains(t))) return
-      onClose()
+      onClose('outside', e)
     }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !e.defaultPrevented) {
         e.preventDefault()
-        onClose()
+        onClose('escape', e)
       }
     }
     // defer so the click that opened it doesn't immediately close it
@@ -244,3 +244,21 @@ export function fmtUntil(hours: number): string {
   return m ? `in ${h}h ${m}m` : `in ${h}h`
 }
 
+
+/**
+ * Smooth remaining time / progress for the current activity between hourly sim ticks.
+ * The sim books a whole hour per tick, so an activity started mid-hour (say a 20-min shower at
+ * 9:20) actually completes at the 10:00 tick: spread the minutes the next tick will book over the
+ * part of the hour that is left, instead of racing to "1m left" and sitting there.
+ */
+export function useSmoothActivity(activity: Activity | null | undefined, hour: Hour, frac: number): { remaining: number; progress: number } {
+  const seen = useRef<{ id: string; hour: Hour; frac: number } | null>(null)
+  if (activity && seen.current?.id !== activity.id) seen.current = { id: activity.id, hour, frac }
+  if (!activity) return { remaining: 0, progress: 0 }
+  const f0 = seen.current && seen.current.hour === hour ? Math.min(seen.current.frac, 0.95) : 0
+  const t = Math.max(0, Math.min(1, (frac - f0) / (1 - f0)))
+  const R = Math.max(0, activity.remainingMin)
+  const remaining = R - Math.min(R, 60) * t
+  const progress = activity.durationMin > 0 ? 1 - remaining / activity.durationMin : 0
+  return { remaining, progress: Math.max(0, Math.min(1, progress)) }
+}

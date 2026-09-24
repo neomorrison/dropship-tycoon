@@ -290,9 +290,18 @@ function AdEdit({ s, d, ad, row, onDone }: { s: GameState; d: AccountData; ad: A
   return (
     <div className="fb-drawer-split">
       <div className="fb-drawer-body">
-        <AmCard title="Review status">
+        <AmCard title="Delivery">
           <div className="fb-stack">
-            <StatusCell label={dl.label} tone={dl.tone} />
+            <dl className="fb-kv">
+              <dt>Delivery</dt><dd><StatusCell label={dl.label} tone={dl.tone} /></dd>
+              <dt>Ad review</dt>
+              <dd>
+                <StatusCell
+                  label={ad.review === 'approved' ? 'Approved' : ad.review === 'rejected' ? 'Rejected' : 'In review'}
+                  tone={ad.review === 'approved' ? 'active' : ad.review === 'rejected' ? 'error' : 'review'}
+                />
+              </dd>
+            </dl>
             {ad.review === 'rejected' && (
               <AmNotice
                 tone="error"

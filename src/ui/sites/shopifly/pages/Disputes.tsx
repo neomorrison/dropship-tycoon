@@ -66,12 +66,16 @@ function DisputeList({ navigate }: ShopiflyPageProps) {
   const won = closed.filter(c => c.status === 'won').length
   const { warnRatio, thresholdRatio } = BENCHMARKS.chargebacks
   const due = chargebacks.filter(c => c.status === 'needs_response')
+  // responses you've started (a fight_chargeback activity is running or queued)
+  const { act: curAct, queue } = useGSShallow(s => ({ act: s.player.activity, queue: s.player.queue }))
+  const preparing = useMemo(() => new Set([curAct, ...queue].filter(a => a?.kind === 'fight_chargeback').map(a => String(a!.payload?.chargebackId ?? ''))), [curAct, queue])
+  const toAnswer = due.filter(c => !preparing.has(c.id))
 
   return (
     <PolarisProvider>
       <Page title="Chargebacks" subtitle="Disputes opened by your customers' banks" backAction={{ content: 'Finance', onAction: () => navigate('finances') }} fullWidth>
-        {due.length > 0 && (
-          <Banner tone="critical" title={`${due.length} chargeback${due.length === 1 ? ' needs' : 's need'} a response`}>
+        {toAnswer.length > 0 && (
+          <Banner tone="critical" title={`${toAnswer.length} chargeback${toAnswer.length === 1 ? ' needs' : 's need'} a response`}>
             If you don't submit evidence before the deadline, the dispute closes in the cardholder's favor.
           </Banner>
         )}
@@ -125,6 +129,7 @@ function DisputeList({ navigate }: ShopiflyPageProps) {
                 onRowClick={c => navigate(`disputes/${c.id}`)}
                 defaultSort={{ columnId: 'opened', direction: 'descending' }}
                 pageSize={50}
+                resetPageKey={tab}
                 rowTone={c => (c.status === 'needs_response' && c.respondByDay - today <= 2 ? 'critical' : undefined)}
                 emptyState={<EmptyState heading="No chargebacks in this view" image="search" compact />}
                 columns={[
@@ -132,7 +137,14 @@ function DisputeList({ navigate }: ShopiflyPageProps) {
                   { id: 'customer', title: 'Customer', nowrap: true, render: c => c.customer ?? '—' },
                   { id: 'reason', title: 'Reason', nowrap: true, render: c => REASON_LABEL[c.reason] },
                   { id: 'amount', title: 'Amount', numeric: true, sortValue: c => c.amount, render: c => usd(c.amount) },
-                  { id: 'status', title: 'Status', nowrap: true, render: c => { const st = statusOf(c); return <Badge tone={st.tone}>{st.label}</Badge> } },
+                  {
+                    id: 'status', title: 'Status', nowrap: true,
+                    render: c => {
+                      if (c.status === 'needs_response' && preparing.has(c.id)) return <Badge tone="attention">Preparing response</Badge>
+                      const st = statusOf(c)
+                      return <Badge tone={st.tone}>{st.label}</Badge>
+                    },
+                  },
                   { id: 'deadline', title: 'Deadline', nowrap: true, sortValue: c => (c.status === 'needs_response' ? c.respondByDay : 9e9), render: c => deadline(c, today) },
                   { id: 'opened', title: 'Opened', nowrap: true, sortValue: c => c.openedDay, render: c => formatDate(c.openedDay, 'md') },
                 ]}
@@ -171,6 +183,7 @@ function DisputeDetail({ navigate, id }: ShopiflyPageProps & { id: string }) {
   const items = preview?.items ?? cb.evidenceItems ?? []
   const strength = preview?.evidence ?? cb.evidence
   const msgs = tickets.filter(t => t.orderId === cb.orderId)
+  const openMsg = msgs.find(t => t.status !== 'solved')
   const fee = cb.fee ?? BENCHMARKS.chargebacks.feePerDispute
 
   return (
@@ -222,7 +235,13 @@ function DisputeDetail({ navigate, id }: ShopiflyPageProps & { id: string }) {
                       <li key={it.label} className={it.ok ? 'is-ok' : 'is-missing'}>
                         {it.ok ? <CircleCheck size={16} /> : <CircleX size={16} />}
                         <span>{it.label}</span>
-                        <span className="sf-evidence-state">{it.ok ? 'Included' : 'Not available'}</span>
+                        <span className="sf-evidence-state">
+                          {it.ok ? 'Included'
+                            // an unanswered message can still become evidence: answer it before submitting
+                            : cb.status === 'needs_response' && it.label === 'Customer communication' && openMsg
+                              ? <Link onClick={() => navigate(`inbox/${openMsg.id}`)}>Reply to the customer first</Link>
+                              : 'Not available'}
+                        </span>
                       </li>
                     ))}
                   </ul>
@@ -300,6 +319,7 @@ function DisputeDetail({ navigate, id }: ShopiflyPageProps & { id: string }) {
         onClose={() => setAccepting(false)}
         title="Accept chargeback?"
         pauseGame
+        sectioned
         primaryAction={{ content: 'Accept chargeback', destructive: true, onAction: () => { act(s => { respondChargeback(s, cb.id, 'accept') }); setAccepting(false) } }}
         secondaryActions={[{ content: 'Cancel', onAction: () => setAccepting(false) }]}
       >

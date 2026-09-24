@@ -131,7 +131,7 @@ export function PageGradeCard({ grade, savedScore, dirty, copyLevel }: GradeCard
                     {showScores ? (
                       <>
                         <span className="sf-mx-minibar"><span style={{ width: `${f.score}%`, background: gradeColor(f.score) }} /></span>
-                        {f.score}
+                        <span className="sf-mx-scorenum">{f.score}</span>
                       </>
                     ) : (
                       <Text as="span" variant="bodySm" tone="subdued">{STATUS_TEXT[st]}</Text>

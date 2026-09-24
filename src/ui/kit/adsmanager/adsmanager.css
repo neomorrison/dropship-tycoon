@@ -269,6 +269,8 @@
   font-family: var(--am-font); font-size: var(--am-fs); color: var(--am-text);
 }
 .am-input-el::placeholder { color: var(--am-text-3); }
+/* AmSearch has its own clear button: hide the browser's native one (it showed a second ×) */
+.am-input-el::-webkit-search-cancel-button, .am-input-el::-webkit-search-decoration { -webkit-appearance: none; appearance: none; display: none; }
 textarea.am-input-el { padding: 8px 10px; resize: vertical; line-height: 1.45; min-height: 64px; }
 .am-input-affix { flex: none; display: inline-flex; align-items: center; color: var(--am-text-2); padding: 0 0 0 10px; white-space: nowrap; }
 .am-input-affix + .am-input-el { padding-left: 6px; }
@@ -378,7 +380,7 @@ textarea.am-input-el { padding: 8px 10px; resize: vertical; line-height: 1.45; m
 /* ---- Card / section ---- */
 .am-card { background: var(--am-surface); border-radius: var(--am-radius-lg); box-shadow: var(--am-shadow), 0 0 0 1px rgba(0, 0, 0, 0.04); min-width: 0; }
 .am-theme-tiktak .am-card { box-shadow: none; border: 1px solid var(--am-divider-soft); }
-.am-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 14px 16px 0; }
+.am-card-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px 12px; padding: 14px 16px 0; }
 .am-card-titles { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .am-card-title { margin: 0; font-size: 15px; line-height: 20px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
 .am-theme-tiktak .am-card-title { font-size: 14px; font-weight: 600; }
@@ -508,6 +510,13 @@ textarea.am-input-el { padding: 8px 10px; resize: vertical; line-height: 1.45; m
 .am-etab-chip button { display: inline-flex; padding: 1px; border: 0; background: transparent; color: inherit; cursor: pointer; border-radius: 50%; }
 .am-etab-chip button:hover { background: rgba(255, 255, 255, 0.2); }
 .am-etab-count { flex: none; color: var(--am-text-3); font-weight: 500; font-size: 12px; }
+/* narrow Fadbook tab strips (phone / small windows): "1 ×" chips so the three equal tabs never overlap */
+.am-theme-fadbook .am-etabs { container-type: inline-size; }
+@container (max-width: 560px) {
+  .am-theme-fadbook .am-etab { padding: 0 8px; gap: 5px; }
+  .am-theme-fadbook .am-etab-chip-word { display: none; }
+  .am-theme-fadbook .am-etab-chip { padding: 0 3px 0 7px; gap: 2px; }
+}
 /* Fadbook: folder tabs on a gray strip; the active tab joins the white table */
 .am-theme-fadbook .am-etabs { background: var(--am-surface-2); border-radius: var(--am-radius-lg) var(--am-radius-lg) 0 0; border: 1px solid var(--am-divider); border-bottom: 0; overflow: hidden; }
 .am-theme-fadbook .am-etab { border-right: 1px solid var(--am-divider); }
@@ -621,6 +630,8 @@ textarea.am-input-el { padding: 8px 10px; resize: vertical; line-height: 1.45; m
 .am-cols-cat-on { background: var(--am-primary-soft); color: var(--am-primary); font-weight: 600; }
 .am-cols-cat small { color: var(--am-text-3); font-size: 11px; font-weight: 500; }
 .am-cols-list { flex: 1; min-width: 0; padding: 12px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+/* rows keep their height in the scrolling column (the metric search used to get squashed to ~16px) */
+.am-cols-list > * { flex-shrink: 0; }
 .am-cols-group-title { font-weight: 700; font-size: 12px; color: var(--am-text-2); text-transform: uppercase; letter-spacing: 0.03em; margin-top: 4px; }
 .am-cols-picked { flex: none; width: 240px; border-left: 1px solid var(--am-divider-soft); display: flex; flex-direction: column; background: var(--am-surface-2); }
 .am-cols-picked-head { padding: 12px 12px 8px; font-weight: 600; }

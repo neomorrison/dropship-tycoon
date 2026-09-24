@@ -20,6 +20,8 @@ export function employeeId(s: GameState): string {
   return `4471-${String(10000 + Math.floor(hash01(`${s.meta.saveId}:crew`) * 89999))}`
 }
 
+/** +2 / −5 with a real minus sign */
+const signed = (n: number) => (n < 0 ? `−${-n}` : `+${n}`)
 const shiftEnd = (sh: Shift) => clockLabel(sh.startHour + sh.hours)
 const shiftSpan = (sh: Shift) => `${clockLabel(sh.startHour)} – ${shiftEnd(sh)}`
 
@@ -193,13 +195,16 @@ export function HomePage({ s, navigate }: { s: GameState; navigate: (p: string) 
             {Array.from({ length: JOB_RULES.strikesToFire }, (_, i) => <span key={i} className={i < j.strikes ? 'is-on' : ''}>{i < j.strikes ? '✕' : ''}</span>)}
           </div>
           <span className="md-stat-sub">
-            {j.strikes === 0 ? 'Clean record' : j.lastStrikeDay !== null && j.lastStrikeDay !== undefined ? `Oldest clears ${formatDate(j.lastStrikeDay + JOB_RULES.strikeExpiryDays, 'md')} if you stay clean` : `${JOB_RULES.strikesToFire} = terminated`}
+            {j.strikes === 0 ? 'Clean record' : j.lastStrikeDay !== null && j.lastStrikeDay !== undefined ? `${j.strikes > 1 ? 'One strike clears' : 'Clears'} ${formatDate(j.lastStrikeDay + JOB_RULES.strikeExpiryDays, 'md')} if you stay clean` : `${JOB_RULES.strikesToFire} = terminated`}
           </span>
         </div>
         <button className="md-stat is-link" onClick={() => navigate('pay')}>
           <span className="md-stat-label">Next payday</span>
           <b>{formatDate(payday, 'md')}</b>
-          <span className="md-stat-sub">≈ {usd(check.net)} net{check.laterGross > 0 ? ` · ${usd(check.laterGross)} more rolls into the next check` : ''}</span>
+          <span className="md-stat-sub">
+            {check.gross > 0 ? `≈ ${usd(check.net)} net` : 'No hours in this pay period yet'}
+            {check.laterGross > 0 ? ` · ${usd(check.laterGross)} more rolls into the next check` : ''}
+          </span>
         </button>
       </div>
 
@@ -413,18 +418,36 @@ export function PayPage({ s }: { s: GameState }) {
   const ytd = stubs.filter(p => yearOf(p.payDay) === yearOf(today))
   const ytdGross = ytd.reduce((a, p) => a + p.gross, 0)
   const ytdNet = ytd.reduce((a, p) => a + p.net, 0)
+  // former crew with every hour already paid: there is no next check
+  const offPayroll = !s.job.employed && check.gross <= 0 && check.laterGross <= 0
+  const lastStub = stubs.length ? stubs[stubs.length - 1] : null
   return (
     <div className="md-page">
       <div className="md-two">
+        {offPayroll ? (
+          <Card title="Paychecks" icon={<CalendarClock size={18} />}>
+            <div className="md-bigpay">
+              <span className="md-muted">You're no longer on McDoodle's payroll</span>
+              <b className="is-none">No upcoming checks</b>
+              <span className="md-muted">{lastStub ? `Your last check (${usd(lastStub.net)}) was deposited ${formatDate(lastStub.payDay, 'md')}.` : 'Every hour you worked has been paid.'}</span>
+            </div>
+            <p className="md-note">Pay stubs stay available here. Rehired crew are paid every other Friday by direct deposit.</p>
+          </Card>
+        ) : (
         <Card title="Next paycheck" icon={<CalendarClock size={18} />}>
           <div className="md-bigpay">
             <span className="md-muted">{weekdayName(payday, true)}, {formatDate(payday, 'md')} · {relDay(payday, today)}</span>
             <b>{usd(check.net)}</b>
-            <span className="md-muted">estimated net · {check.hours.toFixed(2)} hours worked through {formatDate(check.periodEnd, 'md')} · {usd(check.gross)} gross</span>
+            <span className="md-muted">
+              {check.hours > 0
+                ? `estimated net · ${check.hours.toFixed(2)} hours worked through ${formatDate(check.periodEnd, 'md')} · ${usd(check.gross)} gross`
+                : `No hours worked yet in this pay period (it covers shifts through ${formatDate(check.periodEnd, 'md')}).`}
+            </span>
             {check.laterGross > 0 && <span className="md-muted">+ {check.laterHours.toFixed(2)} hours after the cutoff ({usd(check.laterGross)} gross) go on the following check.</span>}
           </div>
           <p className="md-note">Paid every other Friday by direct deposit to your Chaise checking. Each check covers hours through the Sunday before payday; hours after that roll into the next check.</p>
         </Card>
+        )}
         <Card title="Year to date" icon={<BadgeCheck size={18} />}>
           <div className="md-ytd">
             <div><span>Gross</span><b>{usd(ytdGross)}</b></div>
@@ -502,6 +525,22 @@ function StubDetail({ s, p }: { s: GameState; p: PayStub }) {
 // ---------------------------------------------------------------------------
 // Career
 // ---------------------------------------------------------------------------
+/** What happens next on the promotion track, including a pending or declined Manager offer. */
+function promotionNote(s: GameState, next: string | null, ready: boolean): string {
+  if (next === 'shift_lead') return ready ? 'You qualify! The promotion goes through overnight.' : 'Shift Lead promotions happen automatically once you qualify.'
+  const base = 'Darnell offers the Manager job in person once you qualify. It comes with the full-time schedule (Mon–Fri, 7 AM–3 PM).'
+  if (!ready) return base
+  if (s.events.modals.some(m => m.kind === 'job_promotion_offer')) return 'You qualify, and Darnell has made you an offer. Answer it to continue.'
+  const declined = s.job.promotionDeclinedDay
+  if (declined !== null && declined !== undefined) {
+    const again = declined + JOB_RULES.promotionReofferDays
+    return again > todayOf(s)
+      ? `You qualify, but you turned the Manager job down on ${formatDate(declined, 'md')}. Darnell will ask again around ${formatDate(again, 'md')}.`
+      : 'You qualify. Darnell will bring up the Manager job again at the start of your next day.'
+  }
+  return `${base} You qualify, so expect the offer at the start of your next day.`
+}
+
 export function CareerPage({ s }: { s: GameState }) {
   const j = s.job
   const pp = safe(() => promotionProgress(s), null)
@@ -537,10 +576,7 @@ export function CareerPage({ s }: { s: GameState }) {
               <Bar value={pp.shifts} max={pp.shiftsNeeded} />
               <div><span>Reliability</span><b>{Math.round(pp.reliability)} / {pp.reliabilityNeeded}</b></div>
               <Bar value={pp.reliability} max={pp.reliabilityNeeded} tone={pp.reliability >= pp.reliabilityNeeded ? 'green' : pp.reliability < 60 ? 'red' : 'yellow'} />
-              <p className="md-note">
-                {pp.next === 'shift_lead' ? 'Shift Lead promotions happen automatically once you qualify.' : 'Darnell offers the Manager job in person once you qualify. It comes with the full-time schedule.'}
-                {pp.ready ? ' You qualify now!' : ''}
-              </p>
+              <p className="md-note">{promotionNote(s, pp.next, pp.ready)}</p>
             </div>
           ) : (
             <p className="md-muted">You're the Manager. There's nowhere left to climb here except out.</p>
@@ -548,12 +584,12 @@ export function CareerPage({ s }: { s: GameState }) {
         </Card>
         <Card title="How reliability works" icon={<AlarmClock size={18} />}>
           <ul className="md-rules">
-            <li><span>On-time shift</span><b className="is-green">+{r.onTime}</b></li>
-            <li><span>Late clock-in</span><b className="is-yellow">{r.late}</b></li>
-            <li><span>More than {JOB_RULES.veryLateMin} min late</span><b className="is-red">{r.veryLate}</b></li>
-            <li><span>No-show</span><b className="is-red">{r.missed}</b></li>
-            <li><span>Call-out (first {JOB_RULES.freeCallOuts} per 30 days)</span><b className="is-yellow">{r.calloutFree}</b></li>
-            <li><span>Extra call-out (also a strike)</span><b className="is-red">{r.calloutStrike}</b></li>
+            <li><span>On-time shift</span><b className="is-green">{signed(r.onTime)}</b></li>
+            <li><span>Late clock-in</span><b className="is-yellow">{signed(r.late)}</b></li>
+            <li><span>More than {JOB_RULES.veryLateMin} min late</span><b className="is-red">{signed(r.veryLate)}</b></li>
+            <li><span>No-show</span><b className="is-red">{signed(r.missed)}</b></li>
+            <li><span>Call-out (first {JOB_RULES.freeCallOuts} per 30 days)</span><b className="is-yellow">{signed(r.calloutFree)}</b></li>
+            <li><span>Extra call-out (also a strike)</span><b className="is-red">{signed(r.calloutStrike)}</b></li>
           </ul>
           <p className="md-note">Every {JOB_RULES.tardiesPerStrike}rd late clock-in is a strike. {JOB_RULES.strikesToFire} strikes and you're let go; a strike falls off after {JOB_RULES.strikeExpiryDays} clean days. Late clock-ins so far: {j.lateCount ?? 0}.</p>
         </Card>
@@ -576,7 +612,9 @@ export function TimeOffPage({ s, navigate }: { s: GameState; navigate: (p: strin
   const sick = s.player.sickDays > 0
   const [confirm, setConfirm] = useState(false)
   const [flash, setFlash] = useFlash(7000)
-  const recent = (j.callOutDays ?? []).filter(d => today - d < 30).sort((a, b) => b - a)
+  const usedAsc = (j.callOutDays ?? []).filter(d => today - d < 30).sort((a, b) => a - b)
+  const upcoming = target ? null : safe(() => nextShift(s), null)
+  const opensAt = upcoming ? Math.floor((upcoming.day * 24 + upcoming.startHour - 24) / 24) : today
 
   const callOut = () => {
     setConfirm(false)
@@ -592,7 +630,7 @@ export function TimeOffPage({ s, navigate }: { s: GameState; navigate: (p: strin
     )
   }
 
-  const consequence = sick ? 'You’re sick, so this call-out is excused: no strike.' : left > 0 ? `This uses 1 of your ${left} remaining free call-out${left === 1 ? '' : 's'} (reliability ${JOB_RULES.reliability.calloutFree}).` : `You're out of free call-outs. This one is a strike and ${JOB_RULES.reliability.calloutStrike} reliability.`
+  const consequence = sick ? 'You’re sick, so this call-out is excused: no strike.' : left > 0 ? `This uses 1 of your ${left} remaining free call-out${left === 1 ? '' : 's'} (reliability ${signed(JOB_RULES.reliability.calloutFree)}).` : `You're out of free call-outs. This one counts as a strike (reliability ${signed(JOB_RULES.reliability.calloutStrike)}).`
 
   return (
     <div className="md-page">
@@ -612,15 +650,34 @@ export function TimeOffPage({ s, navigate }: { s: GameState; navigate: (p: strin
               <button className="md-btn is-primary" onClick={() => setConfirm(true)}>Call out of this shift</button>
             </>
           ) : (
-            <p className="md-muted">You can only call out of a shift that starts in the next 24 hours. Nothing to call out of right now.</p>
+            <>
+              <p className="md-muted">You can only call out of a shift that starts in the next 24 hours. Nothing to call out of right now.</p>
+              {upcoming && (
+                <div className="md-target">
+                  <span className="md-eyebrow">Your next shift</span>
+                  <b>{weekdayName(upcoming.day, true)}, {shiftSpan(upcoming)}</b>
+                  <span className="md-muted">{formatDate(upcoming.day, 'long')} · call-outs open {formatDate(opensAt, 'md')} at {clockLabel(upcoming.startHour)}</span>
+                </div>
+              )}
+            </>
           )}
         </Card>
         <Card title="Call-out policy" icon={<CircleAlert size={18} />}>
           <div className="md-callouts">
-            {Array.from({ length: JOB_RULES.freeCallOuts }, (_, i) => <span key={i} className={i < JOB_RULES.freeCallOuts - left ? 'is-used' : ''}>{i < JOB_RULES.freeCallOuts - left ? 'Used' : 'Free'}</span>)}
+            {Array.from({ length: JOB_RULES.freeCallOuts }, (_, i) => {
+              const usedDay = usedAsc[i]
+              return (
+                <div key={i} className={usedDay !== undefined ? 'is-used' : ''}>
+                  <span>Free call-out {i + 1}</span>
+                  <b>{usedDay !== undefined ? `Used ${formatDate(usedDay, 'md')}` : 'Available'}</b>
+                </div>
+              )
+            })}
           </div>
-          <p className="md-note">{JOB_RULES.freeCallOuts} free call-outs per rolling 30 days. After that, each one is a strike. If you're actually sick (the game will tell you), call-outs are excused.</p>
-          {recent.length > 0 && <p className="md-muted md-small">Recent call-outs: {recent.map(d => formatDate(d, 'md')).join(', ')}</p>}
+          <p className="md-note">
+            {JOB_RULES.freeCallOuts} free call-outs per rolling 30 days. After that, each one is a strike. If you're actually sick (the game will tell you), call-outs are excused.
+            {left === 0 && usedAsc.length > 0 ? ` Your next free call-out comes back ${formatDate(usedAsc[0] + 30, 'md')}.` : ''}
+          </p>
           {sick && <p className="md-conseq">🤒 You're sick for {s.player.sickDays} more day{s.player.sickDays === 1 ? '' : 's'}. Rest — working sick is slower and miserable.</p>}
         </Card>
       </div>

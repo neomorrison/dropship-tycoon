@@ -67,7 +67,7 @@ export function runRules(s: GameState): void {
       if (!hit) continue
       const detail = applyAction(s, rule, e.level, e.id)
       if (!detail) continue
-      const entry: RuleLogEntry = { id: uid(s, 'rl'), hour: s.time.hour, ruleId: rule.id, ruleName: rule.name, level: e.level, entityId: e.id, entityName: e.name, action: rule.action, detail }
+      const entry: RuleLogEntry = { id: uid(s, 'rl'), hour: s.time.hour, ruleId: rule.id, ruleName: rule.name, level: e.level, entityId: e.id, entityName: e.name, action: rule.action, detail, trigger: describeTrigger(rule, v) }
       log.push(entry)
       fired.push(entry)
     }
@@ -86,6 +86,18 @@ export function runRules(s: GameState): void {
       })
     }
   }
+}
+
+/** "Cost per purchase $41.20 > $32.00": the reading that made a rule fire (rule activity logs). */
+function describeTrigger(rule: AutomatedRule, v: number): string {
+  const fmt = (x: number) => {
+    if (!Number.isFinite(x)) return 'no purchases'
+    if (rule.metric === 'cpa' || rule.metric === 'spend') return fmtMoney(x)
+    if (rule.metric === 'ctr') return `${x.toFixed(2)}%`
+    return x.toFixed(2)
+  }
+  const label = { cpa: 'Cost per purchase', roas: 'Purchase ROAS', spend: 'Amount spent', ctr: 'Link CTR', frequency: 'Frequency' }[rule.metric]
+  return Number.isFinite(v) ? `${label} ${fmt(v)} ${rule.op} ${fmt(rule.value)}` : `${label}: spend with no purchases`
 }
 
 function applyAction(s: GameState, rule: AutomatedRule, level: AdLevel, id: string): string | null {

@@ -1,6 +1,6 @@
 // Mineo — ad-spy SaaS (dark purple). OWNER: ui-sourcing.
 // Routes: '' | 'ads[?q=]' trending ads · 'products[?q=]' · 'product/<catalogId>' · 'watchlist' · 'billing'
-import { useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { memo, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Bookmark, CreditCard, Crown, Flame, Lock, Package, Search } from 'lucide-react'
 import type { SiteProps } from '../types'
 import { useGS } from '../../../core/store'
@@ -44,7 +44,7 @@ function Logo() {
   )
 }
 
-export default function Mineo({ path, navigate, compact }: SiteProps) {
+function Mineo({ path, navigate, compact }: SiteProps) {
   const route = useMemo(() => parse(path), [path])
   const active = useSpyActive()
   const until = useGS(s => s.catalog.spyToolUntilDay)
@@ -115,3 +115,6 @@ export default function Mineo({ path, navigate, compact }: SiteProps) {
     </div>
   )
 }
+
+// memo: the browser shell re-renders open tabs on every game tick (see AliExprez)
+export default memo(Mineo)

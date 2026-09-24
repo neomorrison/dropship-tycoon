@@ -20,7 +20,7 @@
   font-size: 14px;
   line-height: 1.45;
 }
-.bk-root button { font: inherit; }
+:where(.bk-root, .bk-layer) button { font: inherit; }
 
 /* ---------- header ---------- */
 .bk-header { background: linear-gradient(100deg, #0a2556 0%, #0b2d6b 45%, #0f4c96 100%); color: #fff; position: sticky; top: 0; z-index: 10; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); }
@@ -301,7 +301,7 @@
 @container (max-width: 640px) {
   .bk-header-in { padding: 10px 14px 8px; }
   .bk-wordmark { font-size: 17px; }
-  .bk-nav-in { padding: 0 6px; }
+  .bk-nav-in { padding: 0 28px 0 6px; mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); }
   .bk-nav-item { padding: 10px 10px 11px; font-size: 13px; }
   .bk-nav-item.is-active::after { left: 10px; right: 10px; }
   .bk-page { padding: 14px 12px 28px; gap: 12px; }
@@ -330,3 +330,10 @@
   .bk-tax-icon { display: none; }
   .bk-footer-in { padding: 14px; }
 }
+
+/* QA polish */
+.bk-nowrap { white-space: nowrap; }
+.bk-small { font-size: 12px; margin: 6px 0 0; }
+.bk-progress-rows { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.bk-progress-rows > div { display: flex; flex-direction: column; gap: 5px; font-size: 13px; }
+.bk-progress-rows > div > span { display: flex; justify-content: space-between; gap: 8px; }

@@ -41,6 +41,15 @@ export function setComputerOpen(open: boolean) {
   sfx.whoosh()
 }
 
+/** Player-facing reason an imported file was rejected (never a raw JSON.parse message). */
+export function importErrorText(e: unknown): string {
+  if (e instanceof SyntaxError) return "That file isn't a Dropship Tycoon save (it isn't valid JSON)."
+  const msg = e instanceof Error ? e.message : ''
+  if (/newer version/i.test(msg)) return 'That save comes from a newer version of the game.'
+  if (/not a dropship tycoon save/i.test(msg)) return "That file isn't a Dropship Tycoon save."
+  return "That file couldn't be read as a Dropship Tycoon save."
+}
+
 /** Load a game state into the store and switch to the game screen. */
 export function enterGame(state: GameState, slot: number) {
   useGame.getState().load(state)

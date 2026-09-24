@@ -10,13 +10,15 @@ import { money } from '../../core/format'
 import { sfx } from '../audio'
 import { ACTIVITY_META, LIFE_QUICK, activityInfo } from './activityMeta'
 import { checkActivity, doActivity, cancelAct, setComputerOpen } from './actions'
-import { Switch, ProgressBar, fmtMinutes, fmtUntil, nextShift, shiftStart, shiftEnd, clockOf } from './common'
+import { Switch, ProgressBar, fmtMinutes, fmtUntil, nextShift, shiftStart, shiftEnd, clockOf, useSmoothActivity } from './common'
 import { isAutopilot, setAutopilot } from '../../sim/life'
+import { CoachInline } from './CoachBubble'
 
 export default function SidePanel() {
   return (
     <aside className="sh-panel" aria-label="Activities">
       <ComputerCta />
+      <CoachInline />
       <NowCard />
       <QueueCard />
       <QuickActions />
@@ -36,7 +38,7 @@ function ComputerCta() {
       <span className="sh-panel-cta-icon">{away ? <Smartphone size={20} /> : <Laptop size={20} />}</span>
       <span className="sh-panel-cta-text">
         <b>{away ? 'Check your phone' : 'Use your computer'}</b>
-        <small>{storeName ? `${storeName} · ads · suppliers · email` : 'Start a store, find products, run ads'}</small>
+        <small title={storeName ? `${storeName} · ads · suppliers · email` : undefined}>{storeName ? `${storeName} · ads · email` : 'Start a store, find products'}</small>
       </span>
       <ArrowUpRight size={18} className="sh-panel-cta-go" />
     </button>
@@ -52,6 +54,7 @@ function NowCard() {
   const mood = useGS(s => s.player.mood)
   const hour = useGS(s => s.time.hour)
   const frac = useUI(u => Math.floor(u.hourFrac * 20) / 20)
+  const smooth = useSmoothActivity(activity, hour, frac)
 
   if (!activity) {
     const h = hourOfDay(hour)
@@ -76,10 +79,10 @@ function NowCard() {
 
   const meta = ACTIVITY_META[activity.kind]
   const info = activityInfo(activity.kind)
-  // smooth between hourly ticks: the fraction of the hour already elapsed is progress the next tick will book
-  const remaining = Math.max(activity.remainingMin > 0 ? 1 : 0, activity.remainingMin - frac * 60)
-  const progress = activity.durationMin > 0 ? 1 - remaining / activity.durationMin : 0
-  const cancellable = activity.kind !== 'work_shift'
+  // smooth between hourly ticks (see useSmoothActivity)
+  const { remaining, progress } = smooth
+  // shifts are left by quitting/calling out; a passed-out player can't be woken
+  const cancellable = activity.kind !== 'work_shift' && !(activity.kind === 'sleep' && activity.payload?.forced)
   return (
     <section className={clsx('sh-card sh-now', `is-${meta?.group ?? 'life'}`)}>
       <div className="sh-card-kicker">
@@ -100,7 +103,7 @@ function NowCard() {
       </div>
       <ProgressBar value={progress} tone={meta?.group === 'business' ? 'blue' : meta?.group === 'work' ? 'amber' : 'mint'} />
       <div className="sh-now-foot">
-        <span>{fmtMinutes(remaining)} left</span>
+        <span>{remaining >= 0.5 ? `${fmtMinutes(remaining)} left` : 'Wrapping up…'}</span>
         <span>{Math.round(progress * 100)}%</span>
       </div>
     </section>
@@ -155,6 +158,20 @@ const SHORT_LABEL: Partial<Record<ActivityKind, string>> = {
   eat_home: 'Cook', eat_takeout: 'Takeout', nap: 'Nap', sleep: 'Sleep', shower: 'Shower', relax: 'Relax', gym: 'Gym', socialize: 'Friends',
 }
 
+/** A disabled reason short enough for the 4-up grid ("Your friends are only free 5:00 PM–1:00 AM." → "5pm–1am"). */
+function shortReason(reason?: string): string | undefined {
+  if (!reason) return reason
+  const win = reason.match(/(\d{1,2}):00 (AM|PM)\s*[–-]\s*(\d{1,2}):00 (AM|PM)/)
+  if (win) return `${win[1]}${win[2].toLowerCase()}–${win[3]}${win[4].toLowerCase()}`
+  if (/not tired/i.test(reason)) return 'Not tired'
+  if (/already planned/i.test(reason)) return 'Planned'
+  if (/afford/i.test(reason)) return 'Can’t afford'
+  if (/sick/i.test(reason)) return 'You’re sick'
+  if (/queue is full/i.test(reason)) return 'Queue full'
+  if (/passed out/i.test(reason)) return 'Passed out'
+  return reason.split(/[.—:]/)[0]
+}
+
 function lifeItem(s: GameState, kind: ActivityKind): QuickItem {
   const info = activityInfo(kind)
   const chk = checkActivity(s, kind)
@@ -192,7 +209,8 @@ function QuickActions() {
   const tickets = s.store.tickets
   const chargebacks = s.store.chargebacks
   const accounts = s.ads.accounts
-  const openTickets = useMemo(() => tickets.filter(t => t.status === 'open').length, [tickets])
+  // escalated tickets are still unanswered (support sessions work every unsolved one)
+  const openTickets = useMemo(() => tickets.filter(t => t.status !== 'solved').length, [tickets])
   const openDisputes = useMemo(() => chargebacks.filter(c => c.status === 'needs_response').length, [chargebacks])
   const flagged = useMemo(() => accounts.find(a => a.status === 'disabled' || a.status === 'restricted') ?? null, [accounts])
 
@@ -212,7 +230,7 @@ function QuickActions() {
   business.push(appItem('post_organic', 'tiktak', '', 'Post on TikTak'))
   business.push(appItem('fight_chargeback', 'shopifly', 'disputes', 'Fight chargebacks', { badge: openDisputes, tone: openDisputes ? 'alert' : undefined, disabled: !openDisputes, reason: 'No open disputes' }))
   business.push(appItem('study', 'academy', '', 'Study'))
-  if (flagged) business.push(appItem('appeal_ad_account', flagged.platform, '', `Appeal ${flagged.platform === 'fadbook' ? 'Fadbook' : 'TikTak'} account`, { tone: 'alert', badge: 1 }))
+  if (flagged) business.push(appItem('appeal_ad_account', flagged.platform, 'account_quality', `${flagged.platform === 'fadbook' ? 'Fadbook' : 'TikTak'} appeal`, { tone: 'alert', badge: 1 }))
 
   return (
     <section className="sh-card sh-quick">
@@ -241,7 +259,7 @@ function QuickButton({ it }: { it: QuickItem }) {
     <button type="button" className="sh-quick-btn" disabled={it.disabled} onClick={it.run} title={it.disabled ? `${it.title ?? it.label}: ${it.reason ?? 'not available right now'}` : `${it.title ?? it.label} · ${it.meta}`}>
       <span className="sh-quick-emoji">{it.emoji}</span>
       <span className="sh-quick-label">{it.label}</span>
-      <span className="sh-quick-meta">{it.disabled && it.reason ? it.reason : it.meta}</span>
+      <span className="sh-quick-meta">{it.disabled && it.reason ? shortReason(it.reason) : it.meta}</span>
     </button>
   )
 }
@@ -261,6 +279,7 @@ function QuickRow({ it }: { it: QuickItem }) {
 // ---------------------------------------------------------------------------
 function WorkCard() {
   const job = useGS(s => s.job)
+  const doing = useGS(s => s.player.activity)
   const hour = useGS(s => s.time.hour)
   const frac = useUI(u => Math.floor(u.hourFrac * 6) / 6)
   const sh = useMemo(() => nextShift(job, hour), [job, hour])
@@ -288,6 +307,37 @@ function WorkCard() {
   let detail = ''
   let live = false
   let progress = 0
+  // the shift started while you were asleep or busy: you're late, and a no-show at the hour
+  const late = sh && sh.status === 'scheduled' && sh.pendingSince !== undefined ? sh : null
+  if (late) {
+    const deadline = (late.pendingSince ?? hour) + 1
+    return (
+      <section className="sh-card sh-work is-late" role="alert">
+        <div className="sh-card-kicker">
+          <CalendarClock size={13} /> Shift started
+          <span className="sh-card-kicker-right">
+            {rank} · {money(job.hourlyWage)}/h
+          </span>
+        </div>
+        <div className="sh-work-row">
+          <span className="sh-work-big">You're late for your {clockOf(late.startHour)} shift</span>
+          <span className="sh-work-sub">Clock in by {clockOf(deadline)} or it counts as a no-show (a strike).</span>
+          {doing && doing.kind !== 'sleep' && doing.kind !== 'work_shift' && <span className="sh-work-sub is-warn">Going now abandons “{doing.label}”.</span>}
+        </div>
+        <button type="button" className="sh-btn sh-btn-primary sh-btn-sm sh-work-go" onClick={() => doActivity('work_shift')}>
+          🍟 Go to work now
+        </button>
+        <div className="sh-work-stats">
+          <span title="Three strikes and you're fired">
+            Strikes <b className={clsx(job.strikes >= 2 && 'is-bad')}>{job.strikes}/3</b>
+          </span>
+          <span title="Reliability drives promotions">
+            Reliability <b>{Math.round(job.reliability)}</b>
+          </span>
+        </div>
+      </section>
+    )
+  }
   if (sh) {
     const start = shiftStart(sh)
     const end = shiftEnd(sh)

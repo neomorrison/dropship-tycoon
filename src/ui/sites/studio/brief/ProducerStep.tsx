@@ -65,7 +65,12 @@ export function ProducerStep({ s, model, format, navigate, compact }: {
 
       {sel && (
         <div className="ch-detail ch-producer-detail">
-          <p className="ch-detail-lead">{PRODUCER_INFO[sel.id].description}</p>
+          <p className="ch-detail-lead">
+            {sel.id === 'ugc'
+              // the shared blurb says "your sample"; the job actually ships a fresh unit (or one from 3PL stock), which is what's charged below
+              ? 'A creator films the video in their own home and style. A fresh unit ships to them from the supplier (or from your 3PL stock), so delivery time includes shipping.'
+              : PRODUCER_INFO[sel.id].description}
+          </p>
           {sel.id === 'self' && <SelfDetail s={s} opt={sel} format={format} sample={model.sample} />}
           {sel.id === 'supplier_edit' && <SupplierDetail opt={sel} />}
           {sel.id === 'ugc' && <UgcDetail s={s} model={model} navigate={navigate} />}

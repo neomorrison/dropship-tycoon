@@ -21,10 +21,12 @@ export interface SettingsCtx {
   creatives: { id: string; name: string; producer: string }[]
   storeName: string
   freeOver: number | null
+  /** store ships every order free */
+  freeShipping?: boolean
 }
 
 /** Integer input that keeps what the player types and only commits values inside [min, max]. */
-function IntField({ label, value, onChange, min, max, suffix, helpText }: { label: string; value: number; onChange: (n: number) => void; min: number; max: number; suffix?: string; helpText?: ReactNode }) {
+function IntField({ label, value, onChange, min, max, suffix, prefix, helpText, disabled }: { label: string; value: number; onChange: (n: number) => void; min: number; max: number; suffix?: string; prefix?: string; helpText?: ReactNode; disabled?: boolean }) {
   const [text, setText] = useState(String(value))
   useEffect(() => {
     setText(t => (Number(t) === value ? t : String(value)))
@@ -34,6 +36,8 @@ function IntField({ label, value, onChange, min, max, suffix, helpText }: { labe
       label={label}
       type="integer"
       suffix={suffix}
+      prefix={prefix}
+      disabled={disabled}
       value={text}
       min={min}
       max={max}
@@ -252,13 +256,16 @@ const EDITORS: { [K in SectionId]: Editor<K> } = {
   ),
   ugc_gallery: ({ value, onChange, ctx }) =>
     ctx.creatives.length ? (
-      <ChoiceList
-        title="Content to show"
-        allowMultiple
-        choices={ctx.creatives.map(c => ({ label: c.name, value: c.id, helpText: c.producer === 'ugc' ? 'Creator video' : c.producer === 'self' ? 'Shot by you' : 'Creative' }))}
-        selected={value.creativeIds}
-        onChange={creativeIds => onChange({ ...value, creativeIds })}
-      />
+      <BlockStack gap="200">
+        <ChoiceList
+          title="Content to show"
+          allowMultiple
+          choices={ctx.creatives.map(c => ({ label: c.name, value: c.id, helpText: c.producer === 'ugc' ? 'Creator video' : c.producer === 'self' ? 'Shot by you' : 'Creative' }))}
+          selected={value.creativeIds}
+          onChange={creativeIds => onChange({ ...value, creativeIds })}
+        />
+        {value.creativeIds.length === 0 && <Text as="p" tone="subdued" variant="bodySm">Nothing picked: the gallery shows all of them, plus customer photos in your media.</Text>}
+      </BlockStack>
     ) : (
       <Text as="p" tone="subdued">No finished UGC or self-shot creatives for this product yet. Order one in CreatorHub.</Text>
     ),
@@ -267,9 +274,13 @@ const EDITORS: { [K in SectionId]: Editor<K> } = {
   ),
   free_shipping_bar: ({ value, onChange, ctx }) => (
     <BlockStack gap="200">
-      <TextField label="Free shipping threshold" type="currency" prefix="$" value={String(value.threshold)} onChange={v => onChange({ ...value, threshold: Math.max(1, Number(v) || 0) })} disabled={ctx.freeOver != null} />
-      <Text as="p" tone="subdued" variant="bodySm">
-        {ctx.freeOver != null ? `Uses your shipping setting: free over $${ctx.freeOver}.` : 'Set a free-shipping threshold in Settings → Shipping to match this bar.'}
+      <IntField label="Free shipping threshold" prefix="$" min={1} max={1000} value={ctx.freeOver ?? value.threshold} onChange={threshold => onChange({ ...value, threshold })} disabled={ctx.freeOver != null || ctx.freeShipping} />
+      <Text as="p" tone={ctx.freeOver == null && !ctx.freeShipping ? 'caution' : 'subdued'} variant="bodySm">
+        {ctx.freeShipping
+          ? 'Every order already ships free, so the bar just says so.'
+          : ctx.freeOver != null
+            ? `Uses your shipping setting: free over $${ctx.freeOver}.`
+            : 'You charge shipping on every order. Set "free over a minimum order" in Settings → Shipping, or this bar promises free shipping you don\'t give.'}
       </Text>
     </BlockStack>
   ),

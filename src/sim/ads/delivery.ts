@@ -116,12 +116,49 @@ function capacity(t: Targeting, size: number, s: GameState): number {
   }
 }
 
-/** People with real propensity for this product inside the targeting (frequency builds against this pool). */
-function pocketSize(t: Targeting, size: number, appeal: number): number {
-  const share = t.type === 'broad' ? 0.004 : t.type === 'interest' ? 0.06 : t.type === 'lookalike' ? 0.05 : 0.9
-  return Math.max(300, size * share * (0.6 + 0.5 * Math.min(1.4, appeal)))
+/**
+ * The people the auction actually serves this ad set to (frequency builds against this pool).
+ * Conversion-optimized delivery doesn't spread a budget over 250M adults: it concentrates on the
+ * few hundred thousand it predicts will buy, and only widens that pocket slowly as the budget grows.
+ * That is why real one-product accounts show 7-day frequency ≈1.1–1.2 at $50/day but ≈1.8–3 at
+ * $1–5k/day on "broad" (AdSights/Motion 2025–26 fatigue guides; Meta's frequency caps for Reach
+ * campaigns start at 2/7 days). Capped by the targeting's own size for narrow audiences.
+ */
+export function pocketSize(t: Targeting, size: number, appeal: number, dailySpend = 0): number {
+  if (t.type === 'retargeting') return Math.max(300, size * 0.9)
+  const maxShare = t.type === 'broad' ? 0.004 : t.type === 'interest' ? 0.06 : 0.05
+  const algo = POCKET_BASE * Math.pow(1 + Math.max(0, dailySpend) / 100, POCKET_GROWTH)
+  return Math.max(300, Math.min(size * maxShare, algo) * (0.6 + 0.5 * Math.min(1.4, appeal)))
 }
+/** likely-buyer pocket at ~$0/day, and how fast it widens with the ad set's daily budget */
+const POCKET_BASE = 55_000
+const POCKET_GROWTH = 0.22
 const REPEAT = 1.06
+/** diminishing returns vs the product's scale ceiling: CPA × (1 + K·ratio^EXP) */
+const SCALE_K = 3
+const SCALE_EXP = 1.5
+/**
+ * CPA multiplier at `ratio` = daily spend ÷ (product scale ceiling × audience capacity). Calibrated to the
+ * concave response curves media-mix modelling usually finds for paid social (revenue ∝ spend^0.6–0.8):
+ * over the normal scaling range (5% → 50% of the ceiling, a 10× budget) average CPA roughly doubles,
+ * i.e. elasticity ≈0.7. Gentle at test budgets (×1.03 at 5%, ×1.1 at 10%), ×1.4 at 25%,
+ * ×2.1 at half the ceiling, ×4 at the ceiling; past it you are buying the general population, which keeps
+ * getting worse but bends (×6.2 at 2×, ×12 at 5×).
+ */
+export function scalePressure(ratio: number): number {
+  const r = Math.max(0, ratio)
+  return 1 + SCALE_K * (r <= 1 ? Math.pow(r, SCALE_EXP) : Math.pow(r, 0.8))
+}
+/**
+ * Daily spend the product can absorb right now. The authored `scaleCeiling` already prices in the product's
+ * normal demand and its launch-day saturation ($150 duds … $5k winners), so it is scaled only by how demand has
+ * MOVED since: trend/season, new copycats, difficulty, demand shocks. (Multiplying by raw appeal counted a dud's
+ * low base demand twice and put its ceiling at ~$40/day, so any budget above a test hit ×3–7 CPAs.)
+ */
+export function scaleCeilingNow(pd: ProductDef, appeal: number): number {
+  const typical = Math.max(0.1, pd.baseDemand * (1 - 0.55 * (pd.startSaturation ?? 0)))
+  return Math.max(20, pd.scaleCeiling * clamp(appeal / typical, 0.05, 1.6))
+}
 const reachFn = (imps: number, pool: number) => (pool * (1 - Math.exp(-imps / pool))) / REPEAT
 
 const PLACEMENT: Record<Targeting['placements'], { cpm: number; ctr: number; hook: number }> = {
@@ -176,10 +213,18 @@ export function adCopyScore(p: ProductDef, ad: Pick<Ad, 'primaryText' | 'headlin
 // ---------------------------------------------------------------------------
 // Creative fatigue
 // ---------------------------------------------------------------------------
+/**
+ * CTR retention vs 7-day frequency: a knee, not a slope. Practitioner fatigue guides (AdSights/Atria/Motion
+ * 2025–26) put the onset around the benchmark `fatigueFrequency` (2.5 Fadbook, 1.8 TikTak) with most of the
+ * decay by ~3: an average creative keeps ~97% of its CTR at 1.5, ~90% at 2, ~83% at 2.5, ~74% at 3 and ~55%
+ * at 4. Cheap or shared footage (the same supplier clip other stores run) tires sooner.
+ */
+const FATIGUE_SCALE = 1.5
+const FATIGUE_EXP = 2.8
 export function fatigueFactor(p: Platform, cr: Creative, freq: number, daysRunning: number, extra = 1): number {
   const B = bench(p)
-  const F0 = (B.fatigueFrequency * (0.8 + 0.4 * cr.quality) * (cr.shared ? 0.7 : 1)) / Math.max(0.5, (cr.fatigueBoost ?? 1) * extra)
-  const g = (f: number) => 1 / (1 + Math.pow(Math.max(0, f) / F0, 2.2))
+  const F0 = (FATIGUE_SCALE * B.fatigueFrequency * (0.9 + 0.4 * cr.quality) * (cr.shared ? 0.75 : 1)) / Math.max(0.5, (cr.fatigueBoost ?? 1) * extra)
+  const g = (f: number) => 1 / (1 + Math.pow(Math.max(0, f) / F0, FATIGUE_EXP))
   const ff = Math.min(1, g(Math.max(1, freq)) / g(1))
   const age = Math.max(0.55, 1 - (p === 'fadbook' ? 0.006 : 0.012) * Math.max(0, daysRunning))
   return ff * age
@@ -428,8 +473,14 @@ function deliverAdSet(
   const size = Math.max(1, estimateAudienceSize(s, p, t))
   const pixel = hasPixel(s, p)
   const place = PLACEMENT[t.placements] ?? PLACEMENT.advantage
-  const learnCpm = set.learning.state === 'learning' ? 1.12 : set.learning.state === 'learning_limited' ? 1.2 : 1
-  const learnIntent = set.learning.state === 'active' ? 1.08 : 0.95
+  // Without a pixel the platform can't optimize for purchases, so delivery works like a Traffic objective:
+  // it finds cheap CLICKERS (higher CTR, lower CPM, CPC ≈ $0.7–1.5 — WordStream 2024 traffic-campaign
+  // benchmarks) whose purchase intent is roughly half of a buyer-optimized audience. Click learning ends
+  // after a few dozen clicks, so there's no learning-phase CPM premium either.
+  // Learning doesn't make impressions much pricier; it makes the algorithm worse at picking BUYERS
+  // (Meta: "less stable, usually worse cost per result"), so most of the penalty sits on intent.
+  const learnCpm = !pixel ? 1 : set.learning.state === 'learning' ? 1.06 : set.learning.state === 'learning_limited' ? 1.1 : 1
+  const learnIntent = set.learning.state === 'active' ? 1.08 : set.learning.state === 'learning_limited' ? 0.88 : 0.92
   const qualityCpm = acc.quality < 50 ? 1.15 : 1
 
   // ---- quote each ad ----
@@ -453,20 +504,25 @@ function deliverAdSet(
     const appeal = safeAppeal(s, pd.id)
     const fit = audienceFit(s, pd, p, t)
     // scale pressure: this ad set (only what its audience can absorb) + half of the other spend on the product
-    const ceiling = Math.max(20, pd.scaleCeiling * Math.max(0.05, appeal))
+    const ceiling = scaleCeilingNow(pd, appeal)
     const other = Math.max(0, (productSpend.get(pd.id) ?? 0) - dailySpend)
     const absorbable = (size * 1.2 * baseCpm(s, p, day) * audienceCpmMult(t, size)) / 1000
     const eff = Math.min(dailySpend, absorbable)
     const own = t.type === 'retargeting' ? (0.5 * eff) / Math.max(1, absorbable) : eff / (ceiling * capacity(t, size, s))
     const ratio = own + (0.5 * other) / ceiling
-    const scaleMult = 1 + 0.6 * Math.pow(Math.max(0, ratio), 1.4)
-    const engagementMult = clamp(1.3 - 0.3 * power * Math.sqrt(fat), 0.7, 1.35)
+    // Auction depth: past the pocket of eager buyers every extra dollar reaches colder people. Mostly that
+    // shows up as worse buyers (intent ↓), partly as pricier auctions (CPM ↑); CPA moves by the full scaleMult.
+    const scaleMult = scalePressure(ratio)
+    const scaleCpm = Math.min(1.25, Math.pow(scaleMult, 0.25))
+    const scaleIntent = scaleMult / scaleCpm
+    // quality ranking: engaging creatives win auctions cheaper, but not by more than ~20% (Meta quality/engagement rankings)
+    const engagementMult = clamp(1.3 - 0.3 * power * Math.sqrt(fat), 0.8, 1.35)
     const competition = s.events.modifiers.competitionMult?.[pd.id] ?? 1
-    let cpm = baseCpm(s, p, day) * audienceCpmMult(t, size) * place.cpm * engagementMult * scaleMult * competition
+    let cpm = baseCpm(s, p, day) * audienceCpmMult(t, size) * place.cpm * engagementMult * scaleCpm * competition
       * learnCpm * qualityCpm * ad.noise.cpm * lognormal(s, 0.05 * noise)
     if (camp.kind === 'advantage') cpm *= 0.96
     if (set.optimization === 'add_to_cart') cpm *= 0.95
-    if (!pixel) cpm *= 0.92
+    if (!pixel) cpm *= 0.85
     cpm = clamp(cpm, 1.5, 250)
 
     const gift = pd.giftable > 0.5 ? 1 + 0.1 * giftSeason(day) : 1
@@ -476,7 +532,7 @@ function deliverAdSet(
     // above-average power compounds (power^1.3) so great creatives pull away; a soft ceiling keeps elite ads near 3–4%
     let ctr = B.ctrLink.avg * 0.72 * (power >= 1 ? Math.pow(power, 1.3) : power) * (0.75 + 0.6 * pd.wow) * fit.ctr * fat * gift * (t.type === 'retargeting' ? 1.8 : 1)
       * (s.events.modifiers.ctrMult?.[p] ?? 1) * (0.75 + 0.35 * (pd.platformFit?.[p] ?? 0.7)) * copyMult * place.ctr
-      * (1 - 0.2 * saturation) * (pixel ? 1 : 1.08) * (ad.cta === 'learn_more' ? 0.95 : 1)
+      * (1 - 0.2 * saturation) * (pixel ? 1 : 1.3) * (ad.cta === 'learn_more' ? 0.95 : 1)
       * (still && t.placements === 'reels_stories' ? 0.7 : 1) * ad.noise.ctr * lognormal(s, 0.05 * noise)
     ctr = clamp(CTR_CEIL * Math.tanh(ctr / CTR_CEIL), 0.0008, 0.06)
 
@@ -490,13 +546,14 @@ function deliverAdSet(
     const hookIntent = ['controversial', 'shock_stat', 'question'].includes(cr.hook) || cr.angle === 'curiosity' ? 0.88
       : cr.hook === 'problem_callout' || cr.format === 'demo_video' || cr.format === 'before_after_video' ? 1.05 : 1
     let intent = (p === 'tiktak' ? BENCHMARKS.tiktak.cvrMultiplier : 1) * audIntent * learnIntent * (t.geo === 'T1' ? 0.9 : 1)
-      * hookIntent * (camp.bidStrategy === 'cost_cap' ? 1.1 : 1) * (pixel ? 1 : 0.7) * (0.75 + 0.25 * fit.demo)
+      * hookIntent * (camp.bidStrategy === 'cost_cap' ? 1.1 : 1) * (pixel ? 1 : 0.52) * (0.75 + 0.25 * fit.demo) / scaleIntent
       * (set.optimization === 'add_to_cart' ? 0.88 : 1) * (ad.cta === 'learn_more' ? 0.95 : 1)
     if (camp.kind === 'advantage') intent *= pixel ? 0.95 + 0.2 * Math.min(1, pp / 300) : 0.9
     // gift-angled traffic buys more in season
     if (cr.angle === 'gift' && pd.giftable > 0.5) intent *= 1 + 0.08 * giftSeason(day)
     const newness = ad.firstDeliveryHour == null || hour - ad.firstDeliveryHour < 48 ? 2 : 1
-    const weight = Math.pow(Math.max(0.05, power * fat), 2.5) * newness
+    // the auction piles spend onto the best 1–2 ads (60–80% of an ad set on the top ad is typical), until they tire
+    const weight = Math.pow(Math.max(0.05, power * fat), 3) * newness
     quotes.push({ ad, cr, pd, sp, power, fat, cpm, ctr, intent, weight })
   }
   if (!quotes.length) return 0
@@ -515,7 +572,7 @@ function deliverAdSet(
 
   const wTotal = quotes.reduce((a, q) => a + q.weight, 0)
   const n = quotes.length
-  const pool = pocketSize(t, size, safeAppeal(s, quotes[0].pd.id))
+  const pool = pocketSize(t, size, safeAppeal(s, quotes[0].pd.id), dailySpend)
   let spent = 0
   for (const q of quotes) {
     const share = 0.1 / n + 0.9 * (q.weight / wTotal)

@@ -52,7 +52,8 @@ export function formatAxis(v: number, fmt: ChartFormat = 'number'): string {
   if (!fin(v)) return ''
   if (typeof fmt === 'function') return fmt(v)
   const a = Math.abs(v)
-  const short = (n: number) => (a >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : a >= 1e3 ? `${+(n / 1e3).toFixed(1)}K` : `${+n.toFixed(a < 10 && a % 1 ? 1 : 0)}`)
+  // 1250 → "1.25K" (not "1.3K"), 2500000 → "2.5M"
+  const short = (n: number) => (a >= 1e6 ? `${+(n / 1e6).toFixed(2)}M` : a >= 1e3 ? `${+(n / 1e3).toFixed(2)}K` : `${+n.toFixed(a < 10 && a % 1 ? 1 : 0)}`)
   switch (fmt) {
     case 'money':
     case 'money0': return `${v < 0 ? '-' : ''}$${short(Math.abs(v))}`

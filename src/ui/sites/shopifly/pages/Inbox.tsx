@@ -1,10 +1,11 @@
 // Inbox (Shopifly Inbox look): conversation list, thread with the order context, reply composer
 // with resolution templates, customer panel, and "Work through queue" (customer_support activity).
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, Clock, Headphones, MessageCircle, Package, Search, Send, TriangleAlert } from 'lucide-react'
 import type { ShopiflyPageProps } from '../route'
 import type { GameState, Order, SupportTicket } from '../../../../core/types'
 import { act, useGS, useGSShallow } from '../../../../core/store'
+import { usePauseWhileMounted } from '../../../../core/ui'
 import { dayOf, formatDate } from '../../../../core/time'
 import { answerTicket, REPLY_TEMPLATES } from '../../../../sim/store'
 import { enqueueActivity, ticketsPerSupportSession, vaDailyCapacity } from '../../../../sim/life'
@@ -64,9 +65,12 @@ export default function Inbox({ params, navigate }: ShopiflyPageProps) {
   const perSession = useGS(s => ticketsPerSupportSession(s))
   const [ref, width] = useElementWidth<HTMLDivElement>()
   const narrow = width > 0 && width < 900
-  const [view, setView] = useState<View>('open')
+  // "inbox/overdue" (etc.) opens that view; "inbox/<ticketId>" opens a conversation
+  const routeView = (['open', 'overdue', 'solved', 'all'] as const).find(x => x === params[0])
+  const [view, setView] = useState<View>(routeView ?? 'open')
+  useEffect(() => { if (routeView) setView(routeView) }, [routeView])
   const [q, setQ] = useState('')
-  const routeId = params[0]
+  const routeId = routeView ? params[1] : params[0]
 
   const counts = useMemo(() => ({
     open: tickets.filter(t => t.status !== 'solved').length,
@@ -105,8 +109,8 @@ export default function Inbox({ params, navigate }: ShopiflyPageProps) {
   const showThread = !narrow || !!selected
 
   return (
-    <PolarisProvider className="sf-inbox-app">
-      <div ref={ref} className="sf-inbox">
+    <PolarisProvider className={cx('sf-inbox-app', narrow && 'is-narrow')}>
+      <div ref={ref} className={cx('sf-inbox', narrow && 'is-narrow')}>
         <header className="sf-inbox-head">
           <div className="sf-inbox-title">
             <MessageCircle size={20} />
@@ -212,6 +216,9 @@ function Thread({ t, order, orders, products, now, today, narrow, navigate, onSo
   const [res, setRes] = useState<Resolution>(t.kind === 'refund_request' && refundable ? 'refunded' : t.kind === 'defect' ? 'replacement' : 'answered')
   const [text, setText] = useState(() => draftFor(t, order, res))
   const [sending, setSending] = useState(false)
+  // typing a reply holds the clock (tickets escalate after 48h, which is ~1 real minute at 4x)
+  const [typing, setTyping] = useState(false)
+  usePauseWhileMounted('sf-inbox-reply', typing && t.status !== 'solved')
   const pick = (r: Resolution) => {
     setRes(r)
     setText(draftFor(t, order, r))
@@ -320,7 +327,7 @@ function Thread({ t, order, orders, products, now, today, narrow, navigate, onSo
                 return o.disabled ? <Tooltip key={o.r} content={o.why}>{btn}</Tooltip> : btn
               })}
             </div>
-            <textarea className="sf-composer-text" value={text} onChange={e => setText(e.target.value)} rows={4} aria-label="Reply" />
+            <textarea className="sf-composer-text" value={text} onChange={e => setText(e.target.value)} onFocus={() => setTyping(true)} onBlur={() => setTyping(false)} rows={4} aria-label="Reply" />
             <div className="sf-composer-foot">
               <Text as="span" variant="bodySm" tone="subdued">
                 {res === 'refunded' ? `Refunds ${usd(remaining)} to the customer's card and closes the conversation.`
@@ -356,7 +363,7 @@ function Thread({ t, order, orders, products, now, today, narrow, navigate, onSo
             <BlockStack gap="100">
               <div className="sf-side-row"><span>Topic</span><span>{KIND_LABEL[t.kind]}</span></div>
               <div className="sf-side-row"><span>Received</span><span>{inboxTime(t.createdHour, now, t.id)}</span></div>
-              <div className="sf-side-row"><span>Reply due</span><span>{formatDate(dayOf(t.dueHour), 'md')}, {clock(t.dueHour)}</span></div>
+              <div className="sf-side-row"><span>Reply due</span><span>{formatDate(dayOf(t.dueHour), 'md')}, {clock(t.dueHour, minuteOf(t.id))}</span></div>
             </BlockStack>
             {order && <Button fullWidth onClick={() => navigate(`orders/${order.id}`)}>View order #{order.id}</Button>}
           </BlockStack>

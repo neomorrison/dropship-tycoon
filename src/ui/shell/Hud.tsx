@@ -1,7 +1,7 @@
 // Top HUD: player & needs, date/clock + speed, money, today's business snapshot, actions.
-import { useMemo, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import clsx from 'clsx'
-import { CreditCard, Laptop, Mail, Moon, Settings, Smartphone, Sparkles, Sun, Sunrise, Sunset, Volume2, VolumeX, Wallet, Zap, Utensils, Smile } from 'lucide-react'
+import { CreditCard, Laptop, Mail, Moon, Settings, Smartphone, Sun, Sunrise, Sunset, Volume2, VolumeX, Wallet, Zap, Utensils, Smile } from 'lucide-react'
 import { useGS, useGSShallow } from '../../core/store'
 import { useUI, setSpeed, openSite, type Speed } from '../../core/ui'
 import { dayOf, formatClock, formatDate, hourOfDay } from '../../core/time'
@@ -87,19 +87,17 @@ function TimeCluster() {
   const hour = useGS(s => s.time.hour)
   const sleeping = useGS(s => s.player.activity?.kind === 'sleep')
   const modalCount = useGS(s => s.events.modals.length)
-  const activeEvents = useGS(s => s.events.active)
   const speed = useUI(u => u.speed)
+  // the night only fast-forwards in the room view (see core/engine)
+  const computerOpen = useUI(u => u.computerOpen)
   const locked = useUI(u => u.pauseLocks.length > 0)
   const step = useUI(u => Math.floor(u.hourFrac * 6))
   const narrow = useViewportWidth() < 560
   const day = dayOf(hour)
   const h = hourOfDay(hour)
   const Icon = h >= 21 || h < 5 ? Moon : h < 8 ? Sunrise : h >= 17 ? Sunset : Sun
-  const eventChip = useMemo(() => {
-    const now = activeEvents.filter(e => e.startDay <= day && e.endDay >= day)
-    return now.length ? now : null
-  }, [activeEvents, day])
   const blocked = speed !== 0 && (locked || modalCount > 0)
+  // (active world events are shown in the room scene, top-right: see Scene → EventStrip)
   return (
     <div className="sh-hud-group sh-hud-time">
       <div className="sh-clock">
@@ -112,42 +110,43 @@ function TimeCluster() {
           <span>{formatClock(hour, step / 6)}</span>
         </div>
       </div>
-      <div className="sh-speed" role="group" aria-label="Game speed">
-        {SPEEDS.map(sp => (
-          <button
-            key={sp.speed}
-            type="button"
-            className={clsx('sh-speed-btn', speed === sp.speed && 'is-active', sp.speed === 0 && 'is-pause')}
-            onClick={() => {
-              setSpeed(sp.speed)
-              sfx.click()
-            }}
-            title={`${sp.label} (${sp.key})`}
-            aria-label={sp.label}
-            aria-pressed={speed === sp.speed}
-          >
-            <SpeedGlyph n={sp.n} />
-          </button>
-        ))}
+      <div className="sh-speed-wrap">
+        <div className="sh-speed" role="group" aria-label="Game speed">
+          {SPEEDS.map(sp => (
+            <button
+              key={sp.speed}
+              type="button"
+              className={clsx('sh-speed-btn', speed === sp.speed && 'is-active', sp.speed === 0 && 'is-pause')}
+              onClick={() => {
+                setSpeed(sp.speed)
+                sfx.click()
+              }}
+              title={`${sp.label} (${sp.key})`}
+              aria-label={sp.label}
+              aria-pressed={speed === sp.speed}
+            >
+              <SpeedGlyph n={sp.n} />
+            </button>
+          ))}
+        </div>
+        {speed === 0 ? (
+          <span className="sh-time-chip is-paused">Paused</span>
+        ) : blocked ? (
+          <span className="sh-time-chip is-locked" title={modalCount ? 'Waiting for your decision' : 'The clock waits while you edit or read'}>
+            {modalCount ? 'Decision' : 'Auto-paused'}
+          </span>
+        ) : sleeping ? (
+          computerOpen ? (
+            <span className="sh-time-chip is-sleep" title="You're asleep. Close the browser to sleep 4× faster">
+              Asleep
+            </span>
+          ) : (
+            <span className="sh-time-chip is-sleep" title="Time runs 4× faster while you sleep">
+              Zz ×{speed * 4}
+            </span>
+          )
+        ) : null}
       </div>
-      {speed === 0 ? (
-        <span className="sh-time-chip is-paused">Paused</span>
-      ) : blocked ? (
-        <span className="sh-time-chip is-locked" title={modalCount ? 'Waiting for your decision' : 'Auto-paused while you edit'}>
-          {modalCount ? 'Decision' : 'Auto-paused'}
-        </span>
-      ) : sleeping ? (
-        <span className="sh-time-chip is-sleep" title="Time runs 4× faster while you sleep">
-          Zz ×{speed * 4}
-        </span>
-      ) : null}
-      {eventChip && (
-        <span className="sh-time-chip is-event" title={eventChip.map(e => e.title).join('\n')}>
-          <Sparkles size={11} strokeWidth={2.6} />
-          {eventChip[0].title}
-          {eventChip.length > 1 && ` +${eventChip.length - 1}`}
-        </span>
-      )}
     </div>
   )
 }
@@ -160,26 +159,39 @@ function MoneyCluster() {
   const { balance, limit, frozen } = useGSShallow(s => ({ balance: s.finance.card.balance, limit: s.finance.card.limit, frozen: s.finance.card.frozen }))
   const storeCreated = useGS(s => s.store.created)
   const day = useGS(s => dayOf(s.time.hour))
-  const pnl = useGS(s => s.finance.pnl[dayOf(s.time.hour)])
+  const sales = useGS(s => s.finance.pnl[dayOf(s.time.hour)]?.revenue ?? 0)
   const orders = useGS(s => s.store.analytics.daily[dayOf(s.time.hour)]?.orders ?? 0)
+  // what the ads actually delivered today (the P&L only books ad spend when a platform bills the card)
+  const adSpend = useGS(s => {
+    let n = 0
+    for (const a of s.ads.accounts) n += Number.isFinite(a.todaySpend) ? a.todaySpend : 0
+    return n
+  })
+  const narrow = useViewportWidth() < 560
   const cashFlash = useFlash(cash)
-  const sales = pnl?.revenue ?? 0
-  const adSpend = (pnl?.adSpendFadbook ?? 0) + (pnl?.adSpendTiktak ?? 0)
   const salesFlash = useFlash(sales)
   const used = limit > 0 ? Math.min(1, balance / limit) : 0
   const cardTone = frozen ? 'crit' : used > 0.9 ? 'crit' : used > 0.7 ? 'warn' : 'ok'
-  const roas = adSpend > 0 ? sales / adSpend : null
+  const hasAds = useGS(s => s.ads.accounts.length > 0)
+  // a few dollars of overnight delivery and no sales yet isn't a ROAS worth flagging red
+  const roas = adSpend >= 10 ? sales / adSpend : null
+  const absCash = Math.abs(cash)
   return (
     <div className="sh-hud-group sh-hud-money">
-      <button type="button" className={clsx('sh-stat', cashFlash && `flash-${cashFlash}`, cash < 0 && 'is-neg')} onClick={() => openSite('bank')} title="Chaise checking — open bank">
+      <button
+        type="button"
+        className={clsx('sh-stat', cashFlash && `flash-${cashFlash}`, cash < 0 && 'is-neg')}
+        onClick={() => openSite('bank')}
+        title={`Chaise checking: ${money(cash)} (open bank)`}
+      >
         <span className="sh-stat-label">
           <Wallet size={12} strokeWidth={2.4} /> Cash
         </span>
-        <span className="sh-stat-value">{money(cash, { compact: Math.abs(cash) >= 100_000 })}</span>
+        <span className="sh-stat-value">{money(cash, { cents: absCash < (narrow ? 1000 : 10_000), compact: absCash >= (narrow ? 100_000 : 1_000_000) })}</span>
       </button>
-      <button type="button" className={clsx('sh-stat sh-stat-card', `is-${cardTone}`)} onClick={() => openSite('bank')} title={frozen ? 'Card frozen — pay it down in Chaise Bank' : `Sapphire card: ${money(balance)} used of ${money(limit, { cents: false })}`}>
+      <button type="button" className={clsx('sh-stat sh-stat-card', `is-${cardTone}`)} onClick={() => openSite('bank', 'card')} title={frozen ? 'Card frozen: pay it down in Chaise Bank' : `Sapphire card: ${money(balance)} used of ${money(limit, { cents: false })}`}>
         <span className="sh-stat-label">
-          <CreditCard size={12} strokeWidth={2.4} /> {frozen ? 'Card frozen' : 'Card'}
+          <CreditCard size={12} strokeWidth={2.4} /> {frozen ? (narrow ? 'Frozen' : 'Card frozen') : 'Card'}
         </span>
         <span className="sh-stat-value">
           {money(balance, { cents: false, compact: balance >= 100_000 })}
@@ -190,30 +202,35 @@ function MoneyCluster() {
         </span>
       </button>
       {storeCreated ? (
-        <button type="button" className={clsx('sh-today', salesFlash === 'up' && 'flash-up')} onClick={() => openSite('shopifly', 'analytics')} title={`Today (Day ${day + 1}) — open Shopifly analytics`}>
+        <button
+          type="button"
+          className={clsx('sh-today', salesFlash === 'up' && 'flash-up')}
+          onClick={() => openSite('shopifly', 'analytics')}
+          title={`Today (Day ${day + 1}): ${money(sales)} sales · ${money(adSpend)} ad spend delivered · ${orders} orders. Open Shopifly analytics`}
+        >
           <span className="sh-today-cell">
             <span className="sh-stat-label">Sales</span>
-            <span className="sh-today-value is-sales">{money(sales, { cents: sales < 1000, compact: sales >= 100_000 })}</span>
+            <span className="sh-today-value is-sales">{money(sales, { cents: sales < (narrow ? 100 : 1000), compact: sales >= (narrow ? 10_000 : 100_000) })}</span>
           </span>
           <span className="sh-today-cell">
-            <span className="sh-stat-label">Ad spend</span>
-            <span className="sh-today-value">{money(adSpend, { cents: adSpend < 1000, compact: adSpend >= 100_000 })}</span>
+            <span className="sh-stat-label">{narrow ? 'Ads' : 'Ad spend'}</span>
+            <span className="sh-today-value">{money(adSpend, { cents: adSpend < (narrow ? 100 : 1000), compact: adSpend >= (narrow ? 10_000 : 100_000) })}</span>
           </span>
           <span className="sh-today-cell">
             <span className="sh-stat-label">Orders</span>
             <span className="sh-today-value">{orders.toLocaleString('en-US')}</span>
           </span>
-          {roas !== null && (
-            <span className="sh-today-cell is-roas">
+          {(hasAds || roas !== null) && (
+            <span className="sh-today-cell is-roas" title={roas === null ? 'Blended ROAS shows once today’s ad spend passes $10' : undefined}>
               <span className="sh-stat-label">ROAS</span>
-              <span className={clsx('sh-today-value', roas >= 2 ? 'is-good' : roas < 1 ? 'is-bad' : '')}>{roas.toFixed(2)}</span>
+              <span className={clsx('sh-today-value', roas !== null && (roas >= 2 ? 'is-good' : roas < 1 ? 'is-bad' : ''))}>{roas === null ? '—' : roas.toFixed(2)}</span>
             </span>
           )}
         </button>
       ) : (
         <button type="button" className="sh-today sh-today-cta" onClick={() => openSite('shopifly')}>
           <span className="sh-today-bag">🛍</span>
-          <span>
+          <span className="sh-today-cta-text">
             <b>No store yet</b>
             <small>Start a Shopifly trial</small>
           </span>
@@ -252,7 +269,7 @@ function ActionCluster() {
         <Mail size={18} strokeWidth={2.2} />
         {unreadMail > 0 && <span className="sh-badge">{unreadMail > 99 ? '99+' : unreadMail}</span>}
       </button>
-      <button type="button" className="sh-hud-icon sh-hide-sm" onClick={() => toggleMuted()} title={muted ? 'Unmute' : 'Mute'} aria-label={muted ? 'Unmute' : 'Mute'}>
+      <button type="button" className="sh-hud-icon sh-hide-md sh-hide-sm" onClick={() => toggleMuted()} title={muted ? 'Unmute' : 'Mute'} aria-label={muted ? 'Unmute' : 'Mute'}>
         {muted ? <VolumeX size={18} strokeWidth={2.2} /> : <Volume2 size={18} strokeWidth={2.2} />}
       </button>
       <button

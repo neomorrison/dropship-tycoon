@@ -1,6 +1,6 @@
 // Live View: real-time metrics column + dark dot globe with visitors and recent orders.
 import { useMemo } from 'react'
-import { Maximize2 } from 'lucide-react'
+import { Rotate3d } from 'lucide-react'
 import type { ShopiflyPageProps } from '../route'
 import { getGS, useGSShallow } from '../../../../core/store'
 import { dayOf, formatDate, hourOfDay } from '../../../../core/time'
@@ -80,7 +80,7 @@ export default function LiveView({ navigate, compact }: ShopiflyPageProps) {
     const topProducts = Object.entries(todayAgg.byProduct)
       .map(([id, x]) => {
         const p = products.find(pp => pp.id === id)
-        return { id, title: p?.title ?? 'Deleted product', src: p?.media[0]?.src ?? (p ? productImage(p.catalogId) : ''), ...x }
+        return { id, title: p?.title ?? 'Deleted product', src: p?.media[0]?.src || (p ? productImage(p.catalogId) : ''), ...x }
       })
       .sort((a, b) => b.sessions - a.sessions)
       .slice(0, 4)
@@ -146,7 +146,10 @@ export default function LiveView({ navigate, compact }: ShopiflyPageProps) {
             </div>
             <Card>
               <BlockStack gap="300">
-                <MetricTitle tip="What visitors are doing this hour.">Customer behavior</MetricTitle>
+                <InlineStack align="space-between" blockAlign="center" gap="200">
+                  <MetricTitle tip="Sessions in the current hour that added to cart, reached checkout or placed an order.">Customer behavior</MetricTitle>
+                  <Text as="span" variant="bodySm" tone="subdued">This hour</Text>
+                </InlineStack>
                 <div className="sf-live-behavior">
                   <div><span>{int(v.activeCarts)}</span><Text as="span" variant="bodySm" tone="subdued">Active carts</Text></div>
                   <div><span>{int(v.checkingOut)}</span><Text as="span" variant="bodySm" tone="subdued">Checking out</Text></div>
@@ -190,7 +193,7 @@ export default function LiveView({ navigate, compact }: ShopiflyPageProps) {
                 <span><i className="sf-legend-order" /> Orders (last 12 hours)</span>
               </div>
               <Tooltip content="Drag the globe to rotate it">
-                <span className="sf-live-hint"><Maximize2 size={14} /></span>
+                <span className="sf-live-hint"><Rotate3d size={14} /></span>
               </Tooltip>
             </div>
             <div className="sf-live-globe-wrap">

@@ -10,7 +10,7 @@ import { money } from '../../../../core/format'
 import { formatDate } from '../../../../core/time'
 import { APP_CATEGORY_LABELS, KLAVIO_TIERS, appDef, type AppDef } from '../../../../data/apps'
 import { sectionDef } from '../../../../data/sections'
-import { installApp, uninstallApp } from '../../../../sim/store'
+import { appTrialAvailable, installApp, uninstallApp } from '../../../../sim/store'
 import {
   Badge, Banner, BlockStack, Button, Card, DataTable, DescriptionList, EmptyState, InlineGrid, InlineStack, Layout, Modal, Page, Select, Text,
 } from '../../../kit/polaris'
@@ -70,6 +70,9 @@ export default function AppDetail({ params, navigate }: ShopiflyPageProps) {
   const plan = ia ? app.plans[Math.min(ia.planIdx, app.plans.length - 1)] : null
   const trialEnds = bill && plan?.trialDays && ia && bill.nextDueDay > ia.installedDay && bill.nextDueDay - ia.installedDay <= plan.trialDays ? bill.nextDueDay : null
   const chosen = installPlan != null ? app.plans[installPlan] : null
+  // a free trial is offered once per app: reinstalling bills straight away
+  const trialOk = appTrialAvailable(s, app.id)
+  const trialOf = (p: { trialDays?: number }) => (trialOk ? p.trialDays ?? 0 : 0)
 
   return (
     <div className="sf-mx-page">
@@ -170,13 +173,13 @@ export default function AppDetail({ params, navigate }: ShopiflyPageProps) {
                                 {current && <Badge tone="success">Current</Badge>}
                               </InlineStack>
                               <Text as="p" variant="headingLg">{planPriceLabel(p)}</Text>
-                              {(p.trialDays ?? 0) > 0 && <Text as="p" tone="subdued" variant="bodySm">{p.trialDays}-day free trial</Text>}
+                              {(p.trialDays ?? 0) > 0 && p.price > 0 && (trialOk || !installed) && <Text as="p" tone="subdued" variant="bodySm">{trialOk ? `${p.trialDays}-day free trial` : 'Free trial already used'}</Text>}
                               <ul className="sf-mx-checklist sf-mx-checklist--small">
                                 {p.features.map(f => <li key={f}><Check size={13} /> {f}</li>)}
                               </ul>
                               {app.id !== 'klavio' && !current && (
                                 <Button onClick={() => setInstallPlan(i)} variant={installed ? 'secondary' : i === 0 ? 'primary' : 'secondary'}>
-                                  {installed ? 'Switch to this plan' : (p.trialDays ?? 0) > 0 && p.price > 0 ? 'Start free trial' : 'Install'}
+                                  {installed ? 'Switch to this plan' : trialOf(p) > 0 && p.price > 0 ? 'Start free trial' : 'Install'}
                                 </Button>
                               )}
                             </BlockStack>
@@ -264,7 +267,7 @@ export default function AppDetail({ params, navigate }: ShopiflyPageProps) {
         open={chosen != null}
         onClose={() => setInstallPlan(null)}
         title={installed ? `Switch ${name} to ${chosen?.name}?` : `Install ${name}`}
-        primaryAction={{ content: installed ? 'Switch plan' : chosen && (chosen.trialDays ?? 0) > 0 && chosen.price > 0 ? 'Start free trial' : 'Install app', onAction: () => installPlan != null && doInstall(installPlan) }}
+        primaryAction={{ content: installed ? 'Switch plan' : chosen && trialOf(chosen) > 0 && chosen.price > 0 ? 'Start free trial' : 'Install app', onAction: () => installPlan != null && doInstall(installPlan) }}
         secondaryActions={[{ content: 'Cancel', onAction: () => setInstallPlan(null) }]}
       >
         {chosen && (
@@ -290,14 +293,14 @@ export default function AppDetail({ params, navigate }: ShopiflyPageProps) {
                 </InlineStack>
                 <Text as="p" tone="subdued" variant="bodySm">
                   {chosen.billing === 'monthly' && chosen.price > 0
-                    ? (chosen.trialDays ?? 0) > 0 && !installed
+                    ? trialOf(chosen) > 0 && !installed
                       ? `Free for ${chosen.trialDays} days, then ${money(chosen.price)} every 30 days on your card. Uninstall any time before then to pay nothing.`
                       : `${money(chosen.price)} is charged to your card now, then every 30 days.`
                     : chosen.billing === 'usage'
                       ? chosen.usageNote ?? 'Usage-based pricing.'
                       : 'Free. No charges.'}
                 </Text>
-                {chosen.billing === 'monthly' && chosen.price > 0 && !((chosen.trialDays ?? 0) > 0 && !installed) && card.limit - card.balance < chosen.price && (
+                {chosen.billing === 'monthly' && chosen.price > 0 && !(trialOf(chosen) > 0 && !installed) && card.limit - card.balance < chosen.price && (
                   <Text as="p" tone="critical" variant="bodySm">Your card has {money(Math.max(0, card.limit - card.balance))} available, so this charge may be declined.</Text>
                 )}
               </BlockStack>

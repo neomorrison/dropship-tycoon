@@ -5,7 +5,7 @@ import { ChartLine, Copy, Eye, Pencil, Plus, Power, PowerOff, Trash2, X } from '
 import type { AdLevel, EntityStatus, GameState } from '../../../../core/types'
 import { act } from '../../../../core/store'
 import { formatDate } from '../../../../core/time'
-import { addStats, duplicateEntity, emptyStats, setEntityStatus, updateAdSet, updateCampaign } from '../../../../sim/ads'
+import { MB_GATES, addStats, duplicateEntity, emptyStats, featureUnlocked, setEntityStatus, updateAdSet, updateCampaign } from '../../../../sim/ads'
 import { BENCHMARKS } from '../../../../data/benchmarks'
 import {
   AmButton, AmCheckbox, AmDateRangePicker, AmMenu, AmModal, AmNameCell, AmNotice, AmSearch, AmSelect, AmTable, BreakdownMenu, BudgetCell, ColumnsMenu,
@@ -16,7 +16,7 @@ import { ImageWithFallback, cx } from '../../../kit/common'
 import { AccountBanners, EmptyBlock, Panel, useAccount, useGame, useToday, useTt } from '../common'
 import { useStoredRange, useTtUi, ttUi, type StatusFilter } from '../uiState'
 import {
-  DEFAULT_COLUMNS, METRICS, accountData, bidLabel, breakEvenFor, buildRows, dailySeries, entityDisplayId, optimizationLabel,
+  DEFAULT_COLUMNS, METRICS, accountData, bidLabel, breakEvenFor, budgetResetWarning, buildRows, dailySeries, entityDisplayId, optimizationLabel,
   type AccountData, type Bundle, type EntityRow, type MetricId,
 } from '../data'
 import { targetingSummary } from './create/Targeting'
@@ -73,7 +73,7 @@ function matchesStatus(r: EntityRow, f: StatusFilter): boolean {
     case 'all': return true
     case 'all_but_deleted': return r.status !== 'deleted'
     case 'deleted': return r.status === 'deleted'
-    case 'inactive': return r.status === 'paused'
+    case 'inactive': return r.status === 'paused' || (r.status !== 'deleted' && l === 'Inactive')
     case 'active': return r.status === 'active' && (l === 'Active' || l === 'Learning' || l === 'Learning limited')
     case 'learning': return l === 'Learning'
     case 'limited': return l === 'Learning limited'
@@ -131,6 +131,14 @@ export default function Campaigns({ level: routeLevel }: { level?: AdLevel }) {
   // take the one-shot "submitted" message into local state so it shows once, then clear it
   const [flash, setFlash] = useState<string | null>(() => ttUi().flash)
   useEffect(() => { if (ttUi().flash) ttUi().set({ flash: null }) }, [])
+  // it's a confirmation, not a status: gone after a few seconds or once the player switches tabs
+  const [flashLevel] = useState(level)
+  useEffect(() => { if (level !== flashLevel) setFlash(null) }, [level, flashLevel])
+  useEffect(() => {
+    if (!flash) return
+    const t = window.setTimeout(() => setFlash(null), 10_000)
+    return () => window.clearTimeout(t)
+  }, [flash])
 
   const data = useMemo(() => accountData(s, acc.id, r), [s.ads, acc.id, r.from, r.to]) // stats only depend on ads
   const sel = ui.selected
@@ -211,10 +219,9 @@ export default function Campaigns({ level: routeLevel }: { level?: AdLevel }) {
       const deleted = row.status === 'deleted'
       if (row.level === 'campaign') {
         if (c.budgetMode !== 'cbo') return <span className="am-budget"><span className="am-budget-parent">Ad group budget</span></span>
-        const learning = s.ads.adSets.some(x => x.campaignId === c.id && x.status === 'active' && x.learning.state === 'learning')
         return (
           <BudgetCell amount={c.dailyBudget} level="campaign" editable={!deleted} lockedReason={deleted ? 'Deleted campaigns can\'t be edited.' : undefined}
-            learningResetThreshold={learning ? BENCHMARKS.tiktak.maxBudgetIncreaseInLearning : BENCHMARKS.tiktak.significantBudgetChange}
+            warningFor={v => budgetResetWarning(s, 'campaign', c.id, v)}
             onChange={v => act(st => updateCampaign(st, c.id, { dailyBudget: v }))} />
         )
       }
@@ -223,8 +230,7 @@ export default function Campaigns({ level: routeLevel }: { level?: AdLevel }) {
         const set = row.adSet
         return (
           <BudgetCell amount={set.dailyBudget} level="adset" editable={!deleted} lockedReason={deleted ? 'Deleted ad groups can\'t be edited.' : undefined}
-            learningResetThreshold={set.learning.state === 'learning' ? BENCHMARKS.tiktak.maxBudgetIncreaseInLearning : BENCHMARKS.tiktak.significantBudgetChange}
-            warnLearning={set.impressions > 0}
+            warningFor={v => budgetResetWarning(s, 'adset', set.id, v)}
             onChange={v => act(st => updateAdSet(st, set.id, { dailyBudget: v }))} />
         )
       }
@@ -240,7 +246,8 @@ export default function Campaigns({ level: routeLevel }: { level?: AdLevel }) {
       if (row.learning && (d.label === 'Learning' || d.label === 'Learning limited')) {
         return <StatusCell label={d.label} detail={`${row.learning.conversions}/${row.learning.needed} conversions`} progress={row.learning.conversions / row.learning.needed} tooltip={d.detail} />
       }
-      const detail = d.label === 'Not delivering' || d.label === 'Rejected' ? d.detail : undefined
+      // parent turned off: TikTok spells out why a switched-on row is inactive
+      const detail = d.label === 'Not delivering' || d.label === 'Rejected' || (d.label === 'Inactive' && row.status === 'active') ? d.detail : undefined
       return <StatusCell label={d.label} detail={detail ? (detail.length > 42 ? `${detail.slice(0, 40)}…` : detail) : undefined} tooltip={d.detail} />
     },
   }
@@ -301,7 +308,8 @@ export default function Campaigns({ level: routeLevel }: { level?: AdLevel }) {
   // ---- actions ----
   const setStatus = (ids: string[], status: EntityStatus) => act(st => { for (const id of ids) setEntityStatus(st, level, id, status) })
   const duplicate = (ids: string[]) => act(st => { for (const id of ids) duplicateEntity(st, level, id) })
-  const breakdown = ui.breakdown
+  const breakdownsOk = featureUnlocked(s, 'breakdowns')
+  const breakdown = ui.breakdown === 'week' && !breakdownsOk ? null : ui.breakdown
   const subRows = breakdown ? (row: EntityRow) => (isBreak(row) ? undefined : breakdown === 'week' ? weeklyRows(s, data, row, r.from, r.to) : breakdownDaily(s, data, row, r.from, r.to)) : undefined
 
   const createNew = () => {
@@ -392,14 +400,21 @@ export default function Campaigns({ level: routeLevel }: { level?: AdLevel }) {
                     <BreakdownMenu
                       value={breakdown}
                       onChange={v => ui.set({ breakdown: v })}
-                      sections={[{ title: 'By time', items: [{ id: 'day', label: 'Day' }, { id: 'week', label: 'Week' }] }]}
+                      sections={[{
+                        title: 'By time',
+                        items: [
+                          { id: 'day', label: 'Day' },
+                          { id: 'week', label: 'Week', disabled: !breakdownsOk, disabledReason: `Unlocks at Media Buying level ${MB_GATES.breakdowns}.` },
+                        ],
+                      }]}
                     />
                     <ColumnsMenu
                       presets={presets}
                       allColumns={ALL_COLUMNS}
                       value={{ presetId: ui.columns ? 'custom' : ui.columnsPreset, columns: colIds }}
                       onChange={v => {
-                        const isPreset = presets.some(p => p.id === v.presetId)
+                        // read presets fresh: "Save as preset" adds one right before this call
+                        const isPreset = [...BUILTIN_PRESETS, ...ttUi().customPresets].some(p => p.id === v.presetId)
                         ui.set(isPreset ? { columnsPreset: v.presetId, columns: null } : { columns: v.columns })
                       }}
                       locked={['status']}
@@ -527,6 +542,7 @@ function ChooseParent({ open, onClose, s, data, level, onPick }: { open: boolean
       open={open}
       onClose={onClose}
       inline
+      pauseGame
       size="sm"
       title={level === 'adset' ? 'Choose a campaign' : 'Choose an ad group'}
       footer={<><AmButton onClick={onClose}>Cancel</AmButton><AmButton variant="primary" disabled={!id} onClick={() => id && onPick(id)}>Continue</AmButton></>}
@@ -563,7 +579,7 @@ function MobileList({ rows, level, selected, onSelect, onOpen, onDrill }: {
               <Toggle checked={on} disabled={row.status === 'deleted'} onChange={v => act(st => setEntityStatus(st, row.level, row.id, v ? 'active' : 'paused'))} ariaLabel="On/off" size="sm" />
               <div className="tt-card-title">
                 <button type="button" className="tt-link" style={{ textAlign: 'left', color: 'var(--am-text)', fontWeight: 600, fontSize: 14 }} onClick={() => onDrill(row)}>{row.name}</button>
-                <StatusCell label={row.delivery.label} detail={row.learning ? `${row.learning.conversions}/${row.learning.needed} conversions` : undefined} />
+                <StatusCell label={row.delivery.label} detail={row.learning ? `${row.learning.conversions}/${row.learning.needed} conversions` : row.delivery.label === 'Not delivering' || row.delivery.label === 'Rejected' || (row.delivery.label === 'Inactive' && row.status === 'active') ? row.delivery.detail : undefined} />
               </div>
               <AmCheckbox checked={isSel} ariaLabel={`Select ${row.name}`} onChange={on => onSelect(on ? [...selected, row.id] : selected.filter(x => x !== row.id))} />
             </div>

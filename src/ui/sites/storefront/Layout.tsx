@@ -7,7 +7,7 @@ import { yearOf } from '../../../core/time'
 import { PAYMENT_LABELS } from '../../../sim/store'
 import { MediaImage } from './media'
 import type { CartLine, EditorBridge } from './ProductPage'
-import { OverlayCtx, OverlayHost } from './overlay'
+import { BottomSlotCtx, OverlayCtx, OverlayHost } from './overlay'
 import { themeStyle } from './theme'
 import type { StoreView } from './view'
 import './storefront.css'
@@ -24,7 +24,7 @@ export type PolicyKey = (typeof POLICY_PAGES)[number]['key']
 function EditorFrame({ id, label, editor, children }: { id: string; label: string; editor?: EditorBridge | null; children: ReactNode }) {
   if (!editor) return <>{children}</>
   return (
-    <div className={`st-frame${editor.selected === id ? ' is-selected' : ''}`} data-st-block={id} onClick={e => { e.stopPropagation(); editor.onSelect(id) }}>
+    <div className={`st-frame st-frame--chrome${editor.selected === id ? ' is-selected' : ''}`} data-st-block={id} onClick={e => { e.stopPropagation(); editor.onSelect(id) }}>
       {children}
       <span className="st-frame-label">{label}</span>
     </div>
@@ -50,6 +50,7 @@ export interface StoreChromeProps {
 
 export function StoreChrome({ view, children, navigate, cart = [], onOpenCart, editor, mobile, topBar, overlay, onOverlayClose }: StoreChromeProps) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [bottomSlot, setBottomSlot] = useState<HTMLDivElement | null>(null)
   const [inner, setInner] = useState<ReactNode | null>(null)
   const show = useCallback((node: ReactNode | null) => setInner(node), [])
   const [email, setEmail] = useState('')
@@ -68,6 +69,7 @@ export function StoreChrome({ view, children, navigate, cart = [], onOpenCart, e
   const pm = view.payments
   return (
     <OverlayCtx.Provider value={show}>
+    <BottomSlotCtx.Provider value={bottomSlot}>
     <div className={`st-root st-theme--${t.id} st-style--${t.look.style}${t.dark ? ' st-dark' : ''}${t.look.caps ? ' st-caps' : ''}${mobile ? ' st-mobile' : ''}`} style={themeStyle(t)}>
       <OverlayHost content={inner ?? overlay ?? null} onClose={() => (inner ? setInner(null) : onOverlayClose?.())} />
       {topBar}
@@ -141,7 +143,9 @@ export function StoreChrome({ view, children, navigate, cart = [], onOpenCart, e
           </div>
         </footer>
       </EditorFrame>
+      <div className="st-bottom-slot" ref={setBottomSlot} />
     </div>
+    </BottomSlotCtx.Provider>
     </OverlayCtx.Provider>
   )
 }

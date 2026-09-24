@@ -1,8 +1,8 @@
 // AliExprez — product page: gallery, price, variants, delivery estimate, store card,
 // DSerz import, sample checkout, wishlist; tabs Description / Reviews / Research.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  BadgeCheck, CalendarClock, ChevronRight, CircleCheck, CreditCard, Factory, Info, PackageCheck, ShieldCheck, Store, Truck, Users,
+  BadgeCheck, CalendarClock, ChevronRight, CircleCheck, CreditCard, Factory, Flame, Info, PackageCheck, ShieldCheck, Store, Truck, Users,
 } from 'lucide-react'
 import type { ProductDef } from '../../../core/types'
 import { act, getGS, useGS } from '../../../core/store'
@@ -24,11 +24,30 @@ import ItemResearch from './ItemResearch'
 type Tab = 'description' | 'reviews' | 'research'
 const asTab = (x?: string): Tab => (x === 'reviews' || x === 'research' ? x : 'description')
 
+/** Scroll the nearest scrolling ancestor (the browser tab) so `el` sits at the top. */
+function scrollToTop(el: HTMLElement | null, smooth: boolean) {
+  if (!el) return
+  let p = el.parentElement
+  while (p && !(/(auto|scroll)/.test(getComputedStyle(p).overflowY) && p.scrollHeight > p.clientHeight)) p = p.parentElement
+  if (!p) return
+  const top = el.getBoundingClientRect().top - p.getBoundingClientRect().top + p.scrollTop - 8
+  p.scrollTo({ top: Math.max(0, top), behavior: smooth ? 'smooth' : 'auto' })
+}
+
 export default function ItemPage({ id, tab: tabParam, navigate, compact }: AxPageProps & { id: string; tab?: string }) {
   const row = useListing(id)
   const today = useToday()
   const [tab, setTab] = useState<Tab>(asTab(tabParam))
-  useEffect(() => setTab(asTab(tabParam)), [tabParam])
+  const tabsRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    setTab(asTab(tabParam))
+    // deep links like item/<id>/research land on the tab, not on the gallery
+    if (tabParam) requestAnimationFrame(() => scrollToTop(tabsRef.current, false))
+  }, [tabParam])
+  const showTab = (t: Tab) => {
+    setTab(t)
+    requestAnimationFrame(() => scrollToTop(tabsRef.current, true))
+  }
   const [shot, setShot] = useState(GALLERY[1])
   const [picked, setPicked] = useState<Record<string, string>>({})
   const [dialog, setDialog] = useState<null | 'sample' | 'nostore'>(null)
@@ -110,10 +129,13 @@ export default function ItemPage({ id, tab: tabParam, navigate, compact }: AxPag
             <StarRow value={l.rating} />
             <b>{l.rating.toFixed(1)}</b>
             <span className="ax-vsep" />
-            <button type="button" className="ax-link-plain" onClick={() => setTab('reviews')}>{l.reviews.toLocaleString('en-US')} Reviews</button>
+            <button type="button" className="ax-link-plain" onClick={() => showTab('reviews')}>{l.reviews.toLocaleString('en-US')} Reviews</button>
             <span className="ax-vsep" />
             <span>{l.soldLabel}</span>
             <TrendChip trend={l.trend} />
+          </div>
+          <div className="ax-recent" title="Orders placed with this supplier in the last 30 days, all stores combined">
+            <Flame size={13} /> {l.orders30d.toLocaleString('en-US')} orders in the last 30 days
           </div>
 
           {p.variants.map(v => {
@@ -168,7 +190,7 @@ export default function ItemPage({ id, tab: tabParam, navigate, compact }: AxPag
               </button>
             )}
             {depth > 0 && (
-              <button type="button" className="ax-status-line" onClick={() => setTab('research')}>
+              <button type="button" className="ax-status-line" onClick={() => showTab('research')}>
                 <BadgeCheck size={14} /> Research {depth}/3 done — view notes
               </button>
             )}
@@ -183,7 +205,7 @@ export default function ItemPage({ id, tab: tabParam, navigate, compact }: AxPag
         </aside>
       </div>
 
-      <div className="ax-tabs" role="tablist">
+      <div className="ax-tabs" role="tablist" ref={tabsRef}>
         {([['description', 'Description'], ['reviews', `Reviews (${compactNum(l.reviews)})`], ['research', 'Research']] as [Tab, string][]).map(([k, label]) => (
           <button key={k} type="button" role="tab" aria-selected={tab === k} className={cx('ax-tab', tab === k && 'ax-tab-on')} onClick={() => setTab(k)}>
             {label}{k === 'research' && depth > 0 && <span className="ax-tab-dot">{depth}/3</span>}
@@ -332,7 +354,7 @@ function SampleCheckout({ id, variant, onClose, onTrack }: { id: string; variant
       </dl>
       <div className="ax-co-meta">
         <div><Truck size={14} /> Estimated delivery <b>{eta.label}</b> ({formatDate(eta.to, 'medium')} at the latest)</div>
-        <div><CreditCard size={14} /> {method === 'card' ? 'Pay with Chaise Sapphire credit card' : method === 'bank' ? 'Pay from Chaise checking (card limit reached)' : 'Payment declined: not enough cash or available credit'}</div>
+        <div><CreditCard size={14} /> {method === 'card' ? 'Pay with Chaise Sapphire credit card' : method === 'bank' ? 'Pay from Chaise checking (card limit reached)' : `Can't pay ${usd(total)}: not enough cash in checking or credit left on your card`}</div>
       </div>
       {done && !done.ok && <div className="ax-warnline">Payment failed. Check your balances in Chaise Bank.</div>}
     </Dialog>

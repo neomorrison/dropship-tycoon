@@ -101,6 +101,9 @@ function costLabel(model: BriefModel): string {
   const sel = model.selected
   if (!sel) return '—'
   if (sel.cost > 0) return money(sel.cost)
+  // no creator picked yet: the price isn't known, it certainly isn't free
+  if (sel.id === 'ugc') return model.creator ? money(model.creator.pricePerVideo) : '—'
+  if (sel.id === 'agency') return '—' // quoted once a product is picked
   return sel.id === 'staff' ? 'Salary' : 'Free'
 }
 

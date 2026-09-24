@@ -59,7 +59,7 @@ export function MetricTile({ metric, title, tip, value, display, prev, invert, s
     <>
       <MetricTitle tip={tip ?? def?.tip}>{title ?? def?.label}</MetricTitle>
       <div className="sf-tile-row">
-        <span className="sf-tile-value">{display ?? (metric ? formatMetric(metric, value) : value)}</span>
+        <span className="sf-tile-value">{display ?? (metric ? formatMetric(metric, value) : Math.round(value).toLocaleString('en-US'))}</span>
         {prev !== undefined && prev !== null && <DeltaBadge cur={value} prev={prev} invert={invert ?? def?.invert} />}
         {prev === null && <span className="sf-tile-dash">—</span>}
       </div>

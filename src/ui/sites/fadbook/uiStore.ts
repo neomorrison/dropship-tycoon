@@ -12,6 +12,8 @@ export type FbFilter =
   | 'active' | 'learning' | 'learning_limited' | 'off' | 'in_review' | 'rejected' | 'not_delivering' | 'had_delivery'
 
 interface FbUIState {
+  /** the save these view settings belong to (selections are reset when another game is loaded) */
+  saveId: string | null
   accountId: string | null
   level: AdLevel
   sel: Record<AdLevel, string[]>
@@ -48,6 +50,7 @@ export function persistPresets(list: SavedPreset[]) {
 export const DEFAULT_COLUMNS_PRESET = 'performance'
 
 export const useFbUI = create<FbUIState>()(set => ({
+  saveId: null,
   accountId: null,
   level: 'campaign',
   sel: { campaign: [], adset: [], ad: [] },

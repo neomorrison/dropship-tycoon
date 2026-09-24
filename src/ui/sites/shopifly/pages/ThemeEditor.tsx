@@ -97,7 +97,8 @@ export default function ThemeEditor({ params, navigate }: ShopiflyPageProps) {
     if (!product) return
     setDrafts(d => ({ ...d, [product.id]: next }))
   }
-  const draftProduct = useMemo(() => (product ? { ...product, sections } : null), [product, sections])
+  // promisedDays is re-derived from the draft's shipping section (as updateProduct does on save)
+  const draftProduct = useMemo(() => (product ? { ...product, sections, promisedDays: null } : null), [product, sections])
   const presetTheme = useMemo<ThemeDraft | null>(() => {
     if (!previewTheme) return null
     const pr = themeDef(previewTheme).presets[0]
@@ -120,12 +121,23 @@ export default function ThemeEditor({ params, navigate }: ShopiflyPageProps) {
   const dirty = changedProducts.length > 0 || themeDirty
   const { guard, modal: leaveModal } = useLeaveGuard(dirty)
 
-  // scroll the preview to the selected block
+  // scroll the preview pane (only the pane: scrollIntoView would also scroll the admin tab and push
+  // the editor's top bar out of view) to the selected block
   useEffect(() => {
-    if (!selected || !previewRef.current) return
-    const el = previewRef.current.querySelector(`[data-st-block="${selected}"]`)
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const box = previewRef.current
+    if (!selected || !box) return
+    const el = box.querySelector<HTMLElement>(`[data-st-block="${selected}"]`)
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    const b = box.getBoundingClientRect()
+    const top = box.scrollTop + (r.top - b.top) - Math.max(12, (b.height - r.height) / 2)
+    box.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
   }, [selected, page, device])
+  // a different page starts at its top
+  const pageKey = page.kind === 'home' ? 'home' : page.id
+  useEffect(() => {
+    previewRef.current?.scrollTo({ top: 0 })
+  }, [pageKey])
 
   const save = () => {
     const err = themeDirty ? themeDraftValid(themeDraft) : null
@@ -286,7 +298,8 @@ export default function ThemeEditor({ params, navigate }: ShopiflyPageProps) {
             realWindow: realDeliveryWindow(ps, product.catalogId),
             creatives: model?.creatives.filter(c => c.producer !== 'supplier_edit').map(c => ({ id: c.id, name: c.name, producer: c.producer })) ?? [],
             storeName: view.logoText,
-            freeOver: st.shipping.freeOver,
+            freeOver: st.shipping.freeShipping ? null : st.shipping.freeOver,
+            freeShipping: st.shipping.freeShipping,
           }}
         />
         <div className="sf-mx-te-remove">

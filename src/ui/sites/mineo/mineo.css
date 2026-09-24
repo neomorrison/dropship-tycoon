@@ -25,7 +25,7 @@
   line-height: 1.45;
   color-scheme: dark;
 }
-.mi-root button { font-family: inherit; color: inherit; }
+.mi-root :where(button) { font-family: inherit; color: inherit; }
 .mi-frame { height: 100%; display: flex; overflow: hidden; }
 .mi-muted { color: var(--mi-muted); }
 .mi-small { font-size: 12px; }
@@ -188,7 +188,7 @@ th.mi-num .mi-th { justify-content: flex-end; width: 100%; }
 .mi-panel .mi-table-wrap { border-radius: 10px; }
 .mi-chart { width: 100%; }
 .mi-chart .recharts-surface { overflow: visible; }
-.mi-chart-empty { display: flex; align-items: center; justify-content: center; color: var(--mi-dim); border: 1px dashed var(--mi-line); border-radius: 10px; }
+.mi-chart-empty { display: flex; align-items: center; justify-content: center; text-align: center; padding: 0 24px; line-height: 1.5; color: var(--mi-dim); border: 1px dashed var(--mi-line); border-radius: 10px; }
 .mi-tip { background: #231c45; border: 1px solid var(--mi-line-2); border-radius: 10px; padding: 8px 10px; box-shadow: 0 10px 24px rgba(0, 0, 0, .4); }
 .mi-tip-label { font-size: 11px; color: var(--mi-muted); }
 .mi-tip-value { font-size: 13px; font-weight: 700; color: #fff; }

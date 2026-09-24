@@ -49,7 +49,8 @@ export default function Apps({ navigate }: ShopiflyPageProps) {
     const q = query.trim().toLowerCase()
     return APPS.filter(a => (cat === 'all' || a.category === cat) && (!q || `${a.name} ${a.tagline} ${a.developer} ${APP_CATEGORY_LABELS[a.category]}`.toLowerCase().includes(q)))
   }, [query, cat])
-  const popular = APPS.filter(a => a.highlights.includes('Popular with stores like yours') && !installedIds.has(a.id))
+  // one row, like the app store's recommendation strip
+  const popular = APPS.filter(a => a.highlights.includes('Popular with stores like yours') && !installedIds.has(a.id)).slice(0, 3)
   const monthly = bills.filter(b => b.ref?.startsWith('app:')).reduce((a, b) => a + b.amount, 0)
   const scripts = installed.map(a => appDef(a.appId)).filter(a => a && a.loadTime > 0).length
   const confirmApp = confirm ? appDef(confirm) : undefined

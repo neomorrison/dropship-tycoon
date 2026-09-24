@@ -191,9 +191,17 @@ export function breakdownRows(d: AccountData, r: DateRange, kind: 'day' | 'week'
   const firstDay = d.campaigns.reduce((m, c) => Math.min(m, Math.floor(c.createdHour / 24)), Infinity)
   const slices = slicesFor(r, kind, Number.isFinite(firstDay) ? firstDay : r.from)
   const out = new Map<string, Row[]>()
+  // days older than the stats retention window only survive as per-ad lifetime totals: show them
+  // as one summary slice so the breakdown still adds up to the parent row
+  const folded = r.from <= 0 && d.ads.some(ad => ad.lifetime.impressions > 0 || ad.lifetime.spend > 0)
+  if (folded) {
+    let oldest = Infinity
+    for (const ad of d.ads) for (const k in ad.stats) oldest = Math.min(oldest, Number(k))
+    slices.push({ from: -1, to: -1, label: Number.isFinite(oldest) ? `Before ${formatDate(oldest, 'short')}` : 'Earlier', sort: -1, key: 'lifetime' })
+  }
   for (const sl of slices) {
     const perAd = new Map<string, AdAgg>()
-    for (const ad of d.ads) perAd.set(ad.id, aggOf(ad, adRangeStats(ad, { from: sl.from, to: sl.to }), d.creatives))
+    for (const ad of d.ads) perAd.set(ad.id, aggOf(ad, sl.key === 'lifetime' ? ad.lifetime : adRangeStats(ad, { from: sl.from, to: sl.to }), d.creatives))
     const rows = rollUp(d, perAd, { label: sl.label, sort: sl.sort, keySuffix: sl.key })[level]
     for (const row of rows) {
       if (row.st.impressions <= 0 && row.st.spend <= 0) continue

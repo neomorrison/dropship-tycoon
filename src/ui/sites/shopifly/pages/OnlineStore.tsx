@@ -9,12 +9,14 @@ import { THEMES, themeDef, type ThemeDef } from '../../../../data/themes'
 import { appDef } from '../../../../data/apps'
 import { buyTheme, canUseTheme, effectiveLoadTime, updateStoreSettings } from '../../../../sim/store'
 import {
-  Badge, BlockStack, Box, Button, Card, ContextualSaveBar, Icon, InlineGrid, InlineStack, Layout, Modal, Page, ProgressBar, Tabs, Text,
+  Badge, BlockStack, Box, Button, Card, Icon, InlineGrid, InlineStack, Layout, Modal, Page, ProgressBar, Tabs, Text,
 } from '../../../kit/polaris'
+import { useElementWidth } from '../../../kit/common'
 import { LivePreview } from '../merch/LivePreview'
 import { ThemeThumb } from '../merch/ThemeThumb'
 import { PresetSwatch, publishThemeWithDefaults, ThemeSettingsForm, themeDraftValid, themeKey, type ThemeDraft } from '../merch/ThemeSettingsForm'
-import { appShortName, useFlash } from '../merch/shared'
+import { AdminSaveBar, appShortName, useFlash, useLeaveGuard } from '../merch/shared'
+import { productImage } from '../../../../core/assets'
 import { withOverrides } from '../../storefront'
 import '../merch/merch.css'
 
@@ -29,11 +31,13 @@ export default function OnlineStore({ params, navigate }: ShopiflyPageProps) {
     <div className="sf-mx-page">
       <Page title="Online Store" secondaryActions={[{ content: 'View your store', icon: Eye, onAction: () => openSite('storefront', '') }]}>
         <BlockStack gap="400">
-          <Tabs
-            tabs={[{ id: 'themes', content: 'Themes' }, { id: 'preferences', content: 'Preferences' }]}
-            selected={tab}
-            onSelect={i => navigate(i === 1 ? 'online-store/preferences' : 'online-store')}
-          />
+          <div className="sf-mx-guarded-nav">
+            <Tabs
+              tabs={[{ id: 'themes', content: 'Themes' }, { id: 'preferences', content: 'Preferences' }]}
+              selected={tab}
+              onSelect={i => navigate(i === 1 ? 'online-store/preferences' : 'online-store')}
+            />
+          </div>
           {tab === 0 ? <Themes navigate={navigate} /> : <Preferences navigate={navigate} />}
         </BlockStack>
       </Page>
@@ -51,8 +55,12 @@ function Themes({ navigate }: { navigate: (p: string) => void }) {
   const sample = active[0] ?? st.products[0] ?? null
   const loadTime = sample ? effectiveLoadTime(s, sample) : current.loadTime
   const score = speedScore(loadTime)
-  const thumbImg = sample?.media[0]?.src ?? null
+  const thumbImg = sample ? sample.media[0]?.src || productImage(sample.catalogId) : null
   const heavyApps = st.apps.map(a => appDef(a.appId)).filter((a): a is NonNullable<typeof a> => !!a && a.loadTime > 0)
+  // the desktop screenshot shrinks to fit narrow cards (phone admin) instead of spilling out of them
+  const [cardRef, cardW] = useElementWidth<HTMLDivElement>()
+  const compactCard = cardW > 0 && cardW < 560
+  const shotW = cardW > 0 ? Math.max(200, Math.min(420, cardW - 32 - (compactCard ? 0 : 60))) : 420
 
   // publishTheme / buyTheme raise their own store notifications (success and declines)
   const publish = (id: string) => act(g => { publishThemeWithDefaults(g, id) })
@@ -64,12 +72,14 @@ function Themes({ navigate }: { navigate: (p: string) => void }) {
   return (
     <BlockStack gap="400">
       <Card padding="0">
-        <div className="sf-mx-current">
+        <div className={`sf-mx-current${compactCard ? ' is-compact' : ''}`} ref={cardRef}>
           <div className="sf-mx-current-shots">
-            <LivePreview s={s} layoutWidth={1200} width={420} height={262} productId={null} />
-            <div className="sf-mx-current-phone">
-              <LivePreview s={s} layoutWidth={390} width={120} height={240} productId={sample?.id ?? null} />
-            </div>
+            <LivePreview s={s} layoutWidth={1200} width={shotW} height={Math.round(shotW * 262 / 420)} productId={null} />
+            {!compactCard && (
+              <div className="sf-mx-current-phone">
+                <LivePreview s={s} layoutWidth={390} width={120} height={240} productId={sample?.id ?? null} />
+              </div>
+            )}
           </div>
           <div className="sf-mx-current-info">
             <InlineStack gap="200" blockAlign="center">
@@ -210,6 +220,7 @@ function Preferences({ navigate }: { navigate: (p: string) => void }) {
   const [draft, setDraft] = useState<ThemeDraft>(st.theme)
   const [flash, showFlash] = useFlash()
   const dirty = themeKey(draft) !== themeKey(st.theme)
+  const { guard, modal: leaveModal } = useLeaveGuard(dirty)
   const err = themeDraftValid(draft)
   const previewState = useMemo(() => withOverrides(s, { theme: draft }), [s, draft])
   const sample = st.products.find(p => p.status === 'active') ?? st.products[0] ?? null
@@ -221,7 +232,8 @@ function Preferences({ navigate }: { navigate: (p: string) => void }) {
   }
   return (
     <>
-      <ContextualSaveBar visible={dirty} message="Unsaved changes" saveAction={{ onAction: save }} discardAction={{ onAction: () => setDraft(st.theme) }} />
+      <AdminSaveBar visible={dirty} message="Unsaved changes" saveAction={{ onAction: save }} discardAction={{ onAction: () => setDraft(st.theme) }} />
+      {leaveModal}
       <Layout>
         <Layout.Section>
           <BlockStack gap="400">
@@ -245,8 +257,8 @@ function Preferences({ navigate }: { navigate: (p: string) => void }) {
                 <InlineStack gap="200" blockAlign="center"><Icon source={Store} size={18} tone="subdued" /><Text as="span">{st.name}</Text></InlineStack>
                 <InlineStack gap="200" blockAlign="center"><Icon source={Globe} size={18} tone="subdued" /><Text as="span">{st.customDomain ?? st.subdomain}</Text></InlineStack>
                 <InlineGrid columns={2} gap="200">
-                  <Button onClick={() => navigate('settings/general')}>Store details</Button>
-                  <Button onClick={() => navigate('settings/domains')}>Domains</Button>
+                  <Button onClick={() => guard(() => navigate('settings/general'))}>Store details</Button>
+                  <Button onClick={() => guard(() => navigate('settings/domains'))}>Domains</Button>
                 </InlineGrid>
               </BlockStack>
             </Card>

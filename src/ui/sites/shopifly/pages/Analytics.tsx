@@ -5,12 +5,12 @@ import { useMemo, type ReactNode } from 'react'
 import type { ShopiflyPageProps } from '../route'
 import type { GameState, TrafficSource } from '../../../../core/types'
 import { getGS, useGSShallow } from '../../../../core/store'
-import { dayOf } from '../../../../core/time'
+import { dayOf, hourOfDay } from '../../../../core/time'
 import { sourceLabel } from '../../../../sim/store'
 import { Card, InlineGrid, InlineStack, Link, Page, PolarisProvider, Text } from '../../../kit/polaris'
 import { DeltaBadge, LineChartCard } from '../../../kit/charts'
 import { formatRange } from '../../../kit/common'
-import { aggregate, dailyValues, formatMetric, metricOf, seriesPoints, zeroToEmpty, type Agg, type MetricKey, METRICS } from '../core/analytics'
+import { aggregate, aggregateToHour, dailyValues, formatMetric, metricOf, seriesPoints, zeroToEmpty, type Agg, type MetricKey, METRICS } from '../core/analytics'
 import { useSfRange } from '../core/rangeState'
 import { BarList, MetricTile, MetricTitle, ProductCell, RangeControls, useNow, useToday } from '../core/ui'
 import { ordersInRange } from '../core/orders'
@@ -92,7 +92,8 @@ export default function Analytics({ navigate }: ShopiflyPageProps) {
   const v = useMemo(() => {
     const s = getGS()
     const cur = aggregate(s, r.range)
-    const prev = r.cmp ? aggregate(s, r.cmp) : null
+    // "Today" is still in progress: compare with yesterday up to the same hour (like Home)
+    const prev = !r.cmp ? null : r.range.from === r.range.to && r.range.to === dayOf(s.time.hour) ? aggregateToHour(s, r.cmp, hourOfDay(s.time.hour)) : aggregate(s, r.cmp)
     const inRange = ordersInRange(orders, r.range.from, r.range.to)
     const fulfilledIn = (from: number, to: number) => orders.filter(o => o.shipDay != null && o.fulfillment !== 'unfulfilled' && o.shipDay >= from && o.shipDay <= to).length
     const byState = new Map<string, { orders: number; sales: number }>()
@@ -110,7 +111,8 @@ export default function Analytics({ navigate }: ShopiflyPageProps) {
       s, cur, prev, inRange,
       fulfilled: fulfilledIn(r.range.from, r.range.to),
       prevFulfilled: r.cmp ? fulfilledIn(r.cmp.from, r.cmp.to) : null,
-      byState: [...byState.entries()].sort((a, b) => b[1].sales - a[1].sales),
+      // the card's bars show orders: rank by orders (then sales)
+      byState: [...byState.entries()].sort((a, b) => b[1].orders - a[1].orders || b[1].sales - a[1].sales),
       spark: {
         grossSales: dailyValues(s, 'grossSales', sparkRange),
         returningRate: dailyValues(s, 'returningRate', sparkRange),
@@ -127,13 +129,14 @@ export default function Analytics({ navigate }: ShopiflyPageProps) {
     return Object.entries(cur.byProduct)
       .map(([id, x]) => {
         const p = products.find(pp => pp.id === id)
-        return { id, title: p?.title ?? 'Deleted product', src: p?.media[0]?.src ?? (p ? productImage(p.catalogId) : ''), ...x }
+        return { id, title: p?.title ?? 'Deleted product', src: p?.media[0]?.src || (p ? productImage(p.catalogId) : ''), ...x }
       })
       .sort((a, b) => b.units - a.units)
   }, [cur.byProduct, products])
 
-  const socialSessions = SOCIAL.map(k => ({ key: k, label: sourceLabel(k), value: cur.sessionsBySource[k] ?? 0 })).filter(x => x.value > 0)
-  const socialSales = SOCIAL.map(k => ({ key: k, label: sourceLabel(k), value: cur.salesBySource[k] ?? 0 })).filter(x => x.value > 0)
+  // biggest first, like the admin's breakdown cards
+  const socialSessions = SOCIAL.map(k => ({ key: k, label: sourceLabel(k), value: cur.sessionsBySource[k] ?? 0 })).filter(x => x.value > 0).sort((a, b) => b.value - a.value)
+  const socialSales = SOCIAL.map(k => ({ key: k, label: sourceLabel(k), value: cur.salesBySource[k] ?? 0 })).filter(x => x.value > 0).sort((a, b) => b.value - a.value)
   const allSessions = ALL_SOURCES.map(k => ({ key: k, label: sourceLabel(k), value: cur.sessionsBySource[k] ?? 0 })).filter(x => x.value > 0).sort((a, b) => b.value - a.value)
   const marketing = ALL_SOURCES.map(k => ({ k, sales: cur.salesBySource[k] ?? 0, orders: cur.ordersBySource[k] ?? 0, sessions: cur.sessionsBySource[k] ?? 0 }))
     .filter(x => x.sessions > 0 || x.orders > 0)
@@ -172,18 +175,19 @@ export default function Analytics({ navigate }: ShopiflyPageProps) {
           <ACard title="Total sales breakdown" tip="How total sales were made up in this date range." navigate={navigate} report="sales-over-time">
             <div className="sf-breakdown">
               {([
-                ['Gross sales', cur.grossSales, prev?.grossSales, false],
-                ['Discounts', -cur.discounts, prev ? -prev.discounts : null, false],
-                ['Returns', -cur.returns, prev ? -prev.returns : null, false],
-                ['Net sales', cur.netSales, prev?.netSales, true],
-                ['Shipping charges', cur.shipping, prev?.shipping, false],
-                ['Taxes', cur.taxes, prev?.taxes, false],
-                ['Total sales', cur.totalSales, prev?.totalSales, true],
-              ] as [string, number, number | null | undefined, boolean][]).map(([label, val, p, strong]) => (
+                ['Gross sales', cur.grossSales, prev?.grossSales, false, false],
+                ['Discounts', cur.discounts, prev?.discounts, false, true],
+                ['Returns', cur.returns, prev?.returns, false, true],
+                ['Net sales', cur.netSales, prev?.netSales, true, false],
+                ['Shipping charges', cur.shipping, prev?.shipping, false, false],
+                ['Taxes', cur.taxes, prev?.taxes, false, false],
+                ['Total sales', cur.totalSales, prev?.totalSales, true, false],
+              ] as [string, number, number | null | undefined, boolean, boolean][]).map(([label, val, p, strong, deduction]) => (
                 <div key={label} className={`sf-breakdown-row${strong ? ' is-strong' : ''}`}>
                   <span>{label}</span>
-                  <span className="sf-breakdown-val">{usd(val)}</span>
-                  <span className="sf-breakdown-delta">{p !== undefined && p !== null ? <DeltaBadge cur={val} prev={p} /> : null}</span>
+                  {/* deductions read "-$17.85"; their change is on the amount (fewer returns = good) */}
+                  <span className="sf-breakdown-val">{usd(deduction && val ? -val : val)}</span>
+                  <span className="sf-breakdown-delta">{p !== undefined && p !== null ? <DeltaBadge cur={val} prev={p} invert={deduction} /> : null}</span>
                 </div>
               ))}
             </div>

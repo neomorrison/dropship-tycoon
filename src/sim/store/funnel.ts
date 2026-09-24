@@ -121,7 +121,10 @@ function newCustomer(s: GameState): Order['customer'] {
   const f = first.toLowerCase().replace(/[^a-z]/g, '')
   const l = last.toLowerCase().replace(/[^a-z]/g, '')
   const local = style === 0 ? `${f}.${l}` : style === 1 ? `${f}${l}${randInt(s, 1, 99)}` : style === 2 ? `${f[0]}${l}` : `${f}_${l}${randInt(s, 70, 2005)}`
-  return { name: `${first} ${last}`, email: `${local}@${dom}`, city: c.city, region: c.state, returning: false }
+  let email = `${local}@${dom}`
+  // a different person with the same name must not share an inbox (Customers groups by email)
+  for (let i = 0; i < 4 && s.store.orders.some(o => o.customer.email === email); i++) email = `${local}${randInt(s, 2, 999)}@${dom}`
+  return { name: `${first} ${last}`, email, city: c.city, region: c.state, returning: false }
 }
 function returningCustomer(s: GameState): Order['customer'] {
   const orders = s.store.orders

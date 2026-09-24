@@ -4,7 +4,7 @@ import type { Activity, GameState, JobRank, JobSchedule, PayStub, Shift } from '
 import { receive } from '../../core/money'
 import { notify } from '../../core/notify'
 import { pushModal, registerModalHandler } from '../../core/modals'
-import { formatDate, weekday, weekdayName } from '../../core/time'
+import { formatDate, hourOfDay, weekday, weekdayName } from '../../core/time'
 import { uid } from '../../core/ids'
 import { chance, clamp, randInt } from '../../core/rng'
 import { JOB_RANKS, JOB_RULES, JOB_SCHEDULES, MANAGER, PAYROLL, PAYROLL_SENDER } from '../../data/job'
@@ -284,8 +284,18 @@ export function abortShift(s: GameState, reason: 'passed_out' | 'quit' | 'fired'
   p.location = 'home'
   if (reason === 'passed_out') {
     j.reliability = clamp(j.reliability + JOB_RULES.reliability.missed, 0, 100)
-    addStrike(s, 'Collapsed on shift', `You passed out in the middle of the lunch rush. Tanya had to call your mom. I need people who show up rested — ${worked.toFixed(1)} hours worked today.`)
+    addStrike(s, 'Collapsed on shift', `You passed out in the middle of ${restaurantMoment(s)}. Tanya had to call your mom. I need people who show up rested — ${worked.toFixed(1)} hours worked today.`)
   }
+}
+
+/** "the lunch rush" / "the dinner rush" …: what the restaurant is like right now (flavor text). */
+function restaurantMoment(s: GameState): string {
+  const h = hourOfDay(s.time.hour)
+  if (h >= 6 && h < 10) return 'the breakfast rush'
+  if (h >= 11 && h < 14) return 'the lunch rush'
+  if (h >= 17 && h < 20) return 'the dinner rush'
+  if (h >= 22 || h < 6) return 'the late-night drive-thru shift'
+  return 'a slow stretch between rushes'
 }
 
 function findShiftFor(s: GameState, a: Activity): Shift | undefined {
@@ -480,7 +490,7 @@ export function askForJobBack(s: GameState): boolean {
   pushModal(s, {
     kind: 'job_rehire', title: 'Back at the counter',
     image: roomImage('mcdoodles'),
-    body: `You walk in during the lunch rush. The new kid on register recognizes you from your ${j.quitDay !== null ? 'goodbye TikTak' : 'last shift'}. Darnell looks at you for a long time.\n\n"After ${why}? …Fine. Part-time crew, back to $${JOB_RANKS.crew.wage.toFixed(2)}. Your reliability starts at ${JOB_RULES.rehireReliability}, and you're mopping the lobby first. Deal?"`,
+    body: `You walk in during ${restaurantMoment(s)}. The new kid on register recognizes you from your ${j.quitDay !== null ? 'goodbye TikTak' : 'last shift'}. Darnell looks at you for a long time.\n\n"After ${why}? …Fine. Part-time crew, back to $${JOB_RANKS.crew.wage.toFixed(2)}. Your reliability starts at ${JOB_RULES.rehireReliability}, and you're mopping the lobby first. Deal?"`,
     choices: [
       { id: 'accept', label: '"Thank you, Darnell. It won\'t happen again."', tone: 'primary' },
       { id: 'leave', label: 'Keep your dignity and walk out', tone: 'default' },

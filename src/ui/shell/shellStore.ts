@@ -36,6 +36,10 @@ interface ShellStore {
   recaps: DayRecap[]
   /** day shown in the daily report overlay (null = latest) */
   reportDay: number | null
+  /** Coach Kev popup open while the computer/phone is up (Kev docks in the browser toolbar there) */
+  coachOpen: boolean
+  /** room bubble stepped aside (to the face) because the player reached for something under it */
+  coachTucked: boolean
   set: (p: Partial<Omit<ShellStore, 'set'>>) => void
 }
 
@@ -43,6 +47,8 @@ export const useShell = create<ShellStore>()(set => ({
   toasts: [],
   recaps: [],
   reportDay: null,
+  coachOpen: false,
+  coachTucked: false,
   set: p => set(p),
 }))
 
@@ -68,36 +74,51 @@ export function pushToast(t: Omit<ShellToast, 'id' | 'createdAt' | 'updatedAt' |
   return id
 }
 
+/** Orders a sale notification stands for: the store batches each hour into one ("7 new orders"). */
+function ordersIn(n: GameNotification): number {
+  const m = /^(\d+)\s+new orders?\b/i.exec(n.title)
+  return m ? Math.max(1, Number(m[1])) : 1
+}
+/** Latest order number mentioned by a sale notification ("New order #1577" / "… latest #1581"). */
+function latestOrderNo(n: GameNotification): string | null {
+  const all = `${n.title} ${n.body ?? ''}`.match(/#\d+/g)
+  return all ? all[all.length - 1] : null
+}
+
 /** Add sales to the live sales toast (or start a new one). Returns true when a new toast was created. */
 export function pushSales(sales: GameNotification[]): boolean {
   if (!sales.length) return false
   const now = Date.now()
   const st = useShell.getState()
   const total = sales.reduce((a, n) => a + (n.amount ?? 0), 0)
+  const orders = sales.reduce((a, n) => a + ordersIn(n), 0)
   const latest = sales[sales.length - 1]
   const live = [...st.toasts].reverse().find(t => t.kind === 'sale' && now - t.updatedAt < SALE_MERGE_MS)
   if (live) {
+    const no = latestOrderNo(latest)
     const merged: ShellToast = {
       ...live,
-      count: live.count + sales.length,
+      count: live.count + orders,
       amount: live.amount + total,
       notifIds: [...live.notifIds, ...sales.map(n => n.id)],
-      body: latest.body || latest.title,
+      // the per-hour body ("$305.94 in sales this hour") is wrong once hours merge
+      body: no ? `Latest order ${no}` : latest.body || latest.title,
       site: latest.site ?? live.site,
-      path: live.count + sales.length > 1 ? 'orders' : latest.path ?? live.path,
+      path: 'orders',
       updatedAt: now,
       heldMs: 0,
     }
     st.set({ toasts: st.toasts.map(t => (t.id === live.id ? merged : t)) })
     return false
   }
+  const no = sales.length > 1 ? latestOrderNo(latest) : null
   pushToast({
     kind: 'sale',
     title: latest.title,
-    body: latest.body,
+    body: sales.length > 1 && no ? `Latest order ${no}` : latest.body,
     site: latest.site ?? 'shopifly',
-    path: sales.length > 1 ? 'orders' : latest.path ?? 'orders',
-    count: sales.length,
+    path: orders > 1 ? 'orders' : latest.path ?? 'orders',
+    count: orders,
     amount: total,
     notifIds: sales.map(n => n.id),
     ttl: 4600,
@@ -142,4 +163,13 @@ export const useShellPrefs = create<PrefStore>()(set => ({
 const prefsSnapshot = (): ShellPrefs => {
   const { recapToasts, coachCollapsed } = useShellPrefs.getState()
   return { recapToasts, coachCollapsed }
+}
+
+/** If Kev's room bubble covers `el` (a hotspot or its menu), tuck him down to his face + badge. */
+export function tuckCoachIfCovering(el: Element | null) {
+  const k = document.querySelector('.sh-coach')
+  if (!el || !k) return
+  const a = el.getBoundingClientRect()
+  const b = k.getBoundingClientRect()
+  if (a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom) useShell.getState().set({ coachTucked: true })
 }

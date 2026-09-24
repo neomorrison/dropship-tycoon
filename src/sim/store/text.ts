@@ -167,15 +167,19 @@ export function findClaims(text: string): string[] {
 }
 
 // ---- supplier similarity ----
-const supplierCache = new Map<string, { titleSet: Set<string>; allShingles: Set<string>; allSet: Set<string>; titleNorm: string }>()
+const supplierCache = new Map<string, { titleSet: Set<string>; allShingles: Set<string>; allSet: Set<string>; vocab: Set<string>; titleNorm: string }>()
 function supplierIndex(def: ProductDef) {
   let c = supplierCache.get(def.id)
   if (!c) {
     const all = `${def.supplierTitle}\n${def.supplierDescription}`
+    // the product's own vocabulary (its name and selling points): any honest description uses these
+    // words, so sharing them with the supplier listing is not copying
+    const vocab = contentSet(`${def.name} ${def.keywords.join(' ')}`)
     c = {
       titleSet: contentSet(def.supplierTitle),
       allShingles: shingles(words(all), 3),
-      allSet: contentSet(all),
+      allSet: new Set([...contentSet(all)].filter(w => !vocab.has(w))),
+      vocab,
       titleNorm: words(def.supplierTitle).join(' '),
     }
     supplierCache.set(def.id, c)
@@ -204,7 +208,8 @@ export function descriptionSimilarity(text: string, def: ProductDef): number {
   if (toks.length < 3) return 0
   const sh = shingles(toks, 3)
   const shingleC = containment(sh, idx.allShingles)
-  const tokJ = jaccard(contentSet(text), idx.allSet)
+  // token overlap catches reworded/shuffled supplier copy; product vocabulary is left out of it
+  const tokJ = jaccard(new Set([...contentSet(text)].filter(w => !idx.vocab.has(w))), idx.allSet)
   return Math.max(shingleC, tokJ * 0.8)
 }
 

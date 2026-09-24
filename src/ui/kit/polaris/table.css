@@ -27,7 +27,7 @@
 .p-itable tbody tr.p-itable-tone-critical td { background: #fff7f7; }
 .p-itable tbody tr.p-itable-tone-warning td { background: #fffaf2; }
 .p-itable tbody tr.p-itable-tone-success td { background: #f5fff8; }
-.p-itable-check { width: 36px; padding-right: 0 !important; }
+.p-itable-check { box-sizing: border-box; width: 36px; min-width: 36px; max-width: 36px; padding-right: 0 !important; }
 .p-itable-check > .p-choice-wrap { display: inline-flex; }
 .p-itable .p-itable-sticky { position: sticky; left: 0; z-index: 1; }
 .p-itable .p-itable-sticky-2 { position: sticky; z-index: 1; }
@@ -39,6 +39,9 @@
 .p-itable-sortbtn {
   display: inline-flex; align-items: center; gap: 2px; margin: -2px -6px; padding: 2px 6px; border: 0; border-radius: 6px; background: transparent;
   color: inherit; font: inherit; cursor: pointer; white-space: nowrap;
+  /* an inline-flex box takes its baseline from its first item: on right-aligned (numeric) columns
+     that is the sort icon, which lifted the label ~4px above the other headings */
+  vertical-align: middle;
 }
 .p-itable-sortbtn:hover { color: var(--p-text); background: rgba(0, 0, 0, 0.05); }
 .p-itable-sortbtn:focus-visible { outline: 2px solid var(--p-border-focus); outline-offset: 1px; }
@@ -55,7 +58,7 @@
 .p-itable-selhead .p-btn-plain { font-size: 12px; font-weight: 550; }
 
 /* floating bulk action bar */
-.p-itable-bulkwrap { position: sticky; bottom: 12px; z-index: 6; display: flex; justify-content: center; pointer-events: none; height: 0; overflow: visible; }
+.p-itable-bulkwrap { position: sticky; bottom: 12px; z-index: 6; display: flex; justify-content: center; align-items: flex-start; pointer-events: none; height: 0; overflow: visible; }
 .p-itable-bulkspace { height: 56px; border-top: 1px solid var(--p-border-secondary); }
 .p-itable-bulkbar {
   pointer-events: auto; transform: translateY(calc(-100% - 8px)); display: flex; align-items: center; gap: 4px; padding: 6px;
@@ -94,7 +97,9 @@
 .p-dtable tbody tr:last-child td { border-bottom: 0; }
 .p-dtable-sortbtn {
   display: inline-flex; align-items: center; gap: 2px; border: 0; padding: 0; background: transparent; color: inherit; font: inherit; cursor: pointer;
+  vertical-align: top; /* numeric headings start with the sort icon: don't let it set the baseline */
 }
-.p-dtable-sortbtn:hover { color: var(--p-text-link); }
-.p-dtable-sortbtn svg { opacity: 0.35; }
-.p-dtable-sorted svg { opacity: 1; }
+.p-dtable-sortbtn:hover { color: var(--p-text); }
+.p-dtable-sortbtn svg { flex: none; opacity: 0; transition: opacity 80ms; }
+.p-dtable-sortbtn:hover svg, .p-dtable-sortbtn:focus-visible svg, .p-dtable-sorted svg { opacity: 1; }
+.p-dtable-sortbtn:focus-visible { outline: 2px solid var(--p-border-focus); outline-offset: 1px; border-radius: 4px; }

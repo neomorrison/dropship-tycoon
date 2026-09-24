@@ -20,7 +20,7 @@ const SCOPE_LABEL: Record<AdLevel, string> = { campaign: 'Campaigns', adset: 'Ad
 export function describeTt(r: AutomatedRule): string {
   const v = r.metric === 'cpa' || r.metric === 'spend' ? amFmt.money(r.value) : r.metric === 'ctr' ? `${r.value}%` : String(r.value)
   const what = SCOPE_LABEL[r.scope].toLowerCase()
-  const act = r.action === 'pause' ? `turn off the ${what}` : `${r.action === 'increase_budget' ? 'increase' : 'decrease'} daily budget by ${r.actionPct}%`
+  const act = r.action === 'pause' ? 'turn it off' : `${r.action === 'increase_budget' ? 'increase' : 'decrease'} its daily budget by ${r.actionPct}%`
   const scope = r.targetIds?.length ? `${r.targetIds.length} selected ${r.targetIds.length === 1 ? what.replace(/s$/, '') : what}` : `all active ${what}`
   return `For ${scope}: if ${METRIC_LABEL[r.metric]} ${r.op === '>' ? 'is greater than' : 'is less than'} ${v} (${WINDOW_LABEL[r.window ?? 'last_3d'].toLowerCase()})${r.minSpend > 0 ? ` and cost is at least ${amFmt.money(r.minSpend)}` : ''}, ${act}.`
 }
@@ -111,7 +111,7 @@ export default function Rules() {
               <div key={l.id} className="tt-list-item">
                 <div className="tt-list-main">
                   <span className="tt-list-title">{l.entityName}</span>
-                  <span className="tt-list-sub">{l.ruleName}: {l.detail}</span>
+                  <span className="tt-list-sub">{[l.ruleName, l.trigger, l.action !== 'pause' ? l.detail : null].filter(Boolean).join(' · ')}</span>
                 </div>
                 <Pill tone={l.action === 'pause' ? 'warning' : 'info'}>{l.action === 'pause' ? 'Turned off' : l.action === 'increase_budget' ? 'Budget up' : 'Budget down'}</Pill>
                 <span className="tt-faint tt-small" style={{ whiteSpace: 'nowrap' }}>{formatDate(Math.floor(l.hour / 24), 'md')} {formatClock(l.hour)}</span>

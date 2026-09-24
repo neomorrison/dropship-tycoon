@@ -116,7 +116,7 @@ export function EntityTabs({ tabs, active, onChange, theme }: EntityTabsProps) {
             {tb.count !== undefined && t === 'tiktak' && !tb.selectedCount && <span className="am-etab-count">({tb.count})</span>}
             {!!tb.selectedCount && (
               <span className="am-etab-chip">
-                {tb.selectedCount} selected
+                {tb.selectedCount}<span className="am-etab-chip-word"> selected</span>
                 {tb.onClearSelection && (
                   <span
                     role="button"

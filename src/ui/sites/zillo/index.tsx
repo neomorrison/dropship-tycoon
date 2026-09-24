@@ -11,7 +11,7 @@ import { apartmentEligibility, income30, moveApartment, type Eligibility } from 
 import { monthlyBurn } from '../../../sim/finance'
 import { ImageWithFallback } from '../../kit/common'
 import { SiteLayer } from '../bank/SiteLayer'
-import { run, safe, segs, simRead, todayOf, useFlash, useWorld, usd, type Flash } from '../bank/lifeCommon'
+import { round2, run, safe, segs, simRead, todayOf, useFlash, useWorld, usd, type Flash } from '../bank/lifeCommon'
 import './zillo.css'
 
 type Sort = 'rec' | 'low' | 'high' | 'size'
@@ -19,9 +19,11 @@ type PriceCap = 'any' | '1000' | '2000' | '5000'
 
 // stylized map pin positions (percent) for each tier
 const PINS: Record<number, { x: number; y: number }> = {
-  0: { x: 18, y: 72 }, 1: { x: 66, y: 26 }, 2: { x: 48, y: 46 }, 3: { x: 34, y: 30 }, 4: { x: 22, y: 42 }, 5: { x: 58, y: 64 },
+  0: { x: 18, y: 68 }, 1: { x: 66, y: 26 }, 2: { x: 48, y: 46 }, 3: { x: 34, y: 30 }, 4: { x: 22, y: 42 }, 5: { x: 58, y: 64 },
 }
 const BATHS = ['Shared', '1 shared', '1', '1', '2.5', '3.5']
+/** neighborhood label drawn under each pin (HTML, so it stays glued to the pin at any map size) */
+const AREA: Record<number, string> = { 0: 'Maple Heights', 1: 'Eastside', 2: 'Midtown', 3: 'Arts District', 4: 'Westbrook', 5: 'Downtown' }
 
 function fallbackElig(s: GameState, apt: ApartmentDef): Eligibility {
   return {
@@ -149,6 +151,9 @@ function SearchPage({ s, navigate }: { s: GameState; navigate: (p: string) => vo
       <div className="zl-split">
         <div className="zl-map" aria-label="Map of listings">
           <MapArt />
+          {APARTMENTS.map(apt => (
+            <span key={`area-${apt.tier}`} className="zl-map-label" style={{ left: `${PINS[apt.tier].x}%`, top: `${PINS[apt.tier].y}%` }}>{AREA[apt.tier]}</span>
+          ))}
           {APARTMENTS.map(apt => {
             const pos = PINS[apt.tier]
             const shown = listings.some(l => l.apt.tier === apt.tier)
@@ -237,12 +242,6 @@ function MapArt() {
       {[60, 130, 200, 270, 320].map(y => <line key={y} x1="0" x2="400" y1={y} y2={y - 20} stroke="#fff" strokeWidth={y === 200 ? 9 : 5} />)}
       {[70, 150, 230, 310].map(x => <line key={x} x1={x} x2={x + 30} y1="0" y2="520" stroke="#fff" strokeWidth={x === 150 ? 9 : 5} />)}
       <path d="M0 250 C 120 230, 180 300, 400 280" stroke="#f7d774" strokeWidth="7" fill="none" />
-      <text x="92" y="162" fontSize="11" fill="#7b8a80" fontFamily="Inter, sans-serif">Arts District</text>
-      <text x="262" y="50" fontSize="11" fill="#7b8a80" fontFamily="Inter, sans-serif">Eastside</text>
-      <text x="200" y="232" fontSize="11" fill="#7b8a80" fontFamily="Inter, sans-serif">Midtown</text>
-      <text x="36" y="300" fontSize="11" fill="#7b8a80" fontFamily="Inter, sans-serif">Westbrook</text>
-      <text x="220" y="360" fontSize="11" fill="#7b8a80" fontFamily="Inter, sans-serif">Downtown</text>
-      <text x="30" y="420" fontSize="11" fill="#7b8a80" fontFamily="Inter, sans-serif">Maple Heights</text>
     </svg>
   )
 }
@@ -258,7 +257,9 @@ function ListingPage({ s, apt, navigate, setFlash }: { s: GameState; apt: Apartm
   const incOk = e.income30 >= e.needIncome
   const cashOk = e.cash >= e.needCash
   const rentShare = e.income30 > 0 ? apt.rent / e.income30 : Infinity
-  const net = e.moveInCost - e.depositRefund
+  // landlords keep 0–15% of the old deposit for cleaning: estimate the middle of that range
+  const refundEst = round2(e.depositRefund * (1 - (HOUSING_RULES.cleaningFeePct[0] + HOUSING_RULES.cleaningFeePct[1]) / 2))
+  const net = e.moveInCost - refundEst
   const move = () => {
     setConfirm(false)
     const r = run(st => moveApartment(st, apt.tier))
@@ -314,10 +315,17 @@ function ListingPage({ s, apt, navigate, setFlash }: { s: GameState; apt: Apartm
                 <div className="zl-afford-bar">
                   <div className={`zl-afford-fill ${rentShare <= 0.3 ? 'is-ok' : rentShare <= 0.4 ? 'is-warn' : 'is-bad'}`} style={{ width: `${Math.min(100, (Number.isFinite(rentShare) ? rentShare : 1) * 100)}%` }} />
                 </div>
-                <p>
-                  Rent would be <b>{Number.isFinite(rentShare) ? `${Math.round(rentShare * 100)}%` : '∞'}</b> of your last 30 days of income ({usd(e.income30, false)}).
-                  {' '}{rentShare <= 0.3 ? 'Comfortable — under the 30% rule of thumb.' : rentShare <= 0.4 ? 'A stretch. One bad month for the store and rent eats your ad budget.' : 'Risky: rent would take most of what you earn.'}
-                </p>
+                {Number.isFinite(rentShare) ? (
+                  <p>
+                    Rent would be <b>{Math.round(rentShare * 100)}%</b> of your last 30 days of income ({usd(e.income30, false)}).
+                    {' '}{rentShare <= 0.3 ? 'Comfortable — under the 30% rule of thumb.'
+                      : rentShare <= 0.4 ? 'A stretch. One bad month for the store and rent eats your ad budget.'
+                        : rentShare < 0.5 ? 'Risky: well over the 30% rule of thumb, with little room for a slow month.'
+                          : 'Risky: rent would take most of what you earn.'}
+                  </p>
+                ) : (
+                  <p>No income in the last 30 days, so this rent would come straight out of savings.</p>
+                )}
               </div>
             </section>
           )}
@@ -353,8 +361,8 @@ function ListingPage({ s, apt, navigate, setFlash }: { s: GameState; apt: Apartm
                     <div><span>Security deposit</span><b>{usd(e.deposit, false)}</b></div>
                     <div><span>First month (prorated)</span><b>{usd(e.proratedRent)}</b></div>
                     <div><span>Movers</span><b>{usd(e.movers, false)}</b></div>
-                    {e.depositRefund > 0 && <div className="is-credit"><span>Deposit back from {cur.name} (est.)</span><b>−{usd(e.depositRefund, false)}</b></div>}
-                    <div className="is-total"><span>Due at move-in</span><b>{usd(Math.max(0, net))}</b></div>
+                    {refundEst > 0 && <div className="is-credit"><span>Deposit back from {cur.name} (est., after cleaning)</span><b>−{usd(refundEst, false)}</b></div>}
+                    <div className="is-total"><span>{net >= 0 ? 'Due at move-in' : 'Back to you at move-in (est.)'}</span><b>{usd(Math.abs(net))}</b></div>
                   </div>
                 )}
                 {!e.ok && e.reason && <p className="zl-reason">{e.reason}</p>}
@@ -378,7 +386,7 @@ function ListingPage({ s, apt, navigate, setFlash }: { s: GameState; apt: Apartm
             <h3>{apt.tier === 0 ? 'Move back in with your parents?' : `Sign the lease for ${apt.name}?`}</h3>
             {apt.tier > 0 ? (
               <>
-                <p>{usd(Math.max(0, net))} due today, then {usd(apt.rent, false)} on the 1st of every month from checking. Two missed rent payments mean eviction.</p>
+                <p>{net >= 0 ? `${usd(net)} due today` : `About ${usd(-net)} comes back to you today (your old deposit covers the move)`}, then {usd(apt.rent, false)} on the 1st of every month from checking. Two missed rent payments mean eviction.</p>
                 <p className="zl-muted">Your monthly fixed costs go from {usd(safe(() => monthlyBurn(s, b => !b.business), 0), false)} to about {usd(safe(() => monthlyBurn(s, b => !b.business && b.ref !== 'rent'), 0) + apt.rent, false)}.</p>
               </>
             ) : (

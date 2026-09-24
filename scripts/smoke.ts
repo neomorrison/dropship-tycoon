@@ -1,26 +1,49 @@
 // ============================================================================
-// Headless balance smoke test: two scripted players run 150 in-game days on
-// Normal using only the public sim APIs + tickHour on a fresh createNewGame.
+// Headless balance smoke test: two scripted players run 150 in-game days using
+// only the public sim APIs + tickHour on a fresh createNewGame.
 //
 //   npx tsx scripts/smoke.ts            (default seed; also `npm run smoke`)
 //   npx tsx scripts/smoke.ts 12345      (custom seed; both players share it)
 //   npx tsx scripts/smoke.ts 12345 90   (custom seed and day count)
-// Env: SMOKE_DIFFICULTY=chill|realistic  other difficulty (robustness run)
-//      SMOKE_PICK=<catalogId>            force the competent player's product
+//
+// Multi-seed balance sweep (one summary table per difficulty, SPEC §10 targets):
+//   npx tsx scripts/smoke.ts --seeds 20                      seeds 1..20 on Normal
+//   npx tsx scripts/smoke.ts --seeds 20 --difficulty all     chill + normal + realistic
+//   npx tsx scripts/smoke.ts --seeds 101-130 --difficulty realistic
+//   npx tsx scripts/smoke.ts --seeds 3,7,11 --days 90 --runs  (also one line per run)
+// Flags: --seeds N | a-b | a,b,c   --difficulty chill|normal|realistic|all   --days N
+//        --pick <catalogId>  force the competent player's product
+//        --aov auto|on|off   competent AOV levers (bundle_offer + ReKonvert): auto = only for tickets < $40
+//        --runs              print one line per seed in multi-seed mode
+//        --top N             competent picks its #((seed-1) mod N) candidate (default 3 in sweeps, 1 otherwise)
+//        --products N        competent runs at most N products (default 4; 1 = the old single-product player)
+//        --novice-pixel off  novice skips the "Add Fadbook & Instaglam" setup step (no pixel)
+//        --novice-pick popular  novice picks from AliExprez Bestsellers (weighted by 30-day orders) instead of uniformly
+//        --only novice|competent  simulate just one player (faster tuning; the other's columns read 0)
+// Env: SMOKE_DIFFICULTY=chill|realistic  other difficulty (same as --difficulty)
+//      SMOKE_PICK=<catalogId>            same as --pick
 //      SMOKE_DEBUG=COMPETENT|NOVICE      one diagnostic line per day for that player
 //      SMOKE_EVENTS=1                    count warning/critical notifications
 //      SMOKE_RECON=1                     P&L vs balance-sheet reconciliation
+//      SMOKE_BAN=COMPETENT|NOVICE        daily account-restriction hazard + its drivers (when elevated)
+//      SMOKE_PRODUCTS=1                  with SMOKE_DEBUG: one line per product every 5 days instead
 //
 // Built-in integration checks: a read-only API sweep on a deep-frozen day-60 state
 // (UI selectors must never write), and a JSON save round-trip at day 90.
 //
 // COMPETENT: picks a product from public signals (rising orders, few advertisers,
-// big Amazin price gap), builds a real product page, prices ~0.9x the Amazin
-// anchor, films/briefs 4 fitting creatives, runs a $40/day CBO broad campaign
-// and manages it daily like a media buyer.
-// NOVICE: random product, supplier copy and default price, one supplier-edit
+// big Amazin price gap), builds a real product page (plus quantity breaks and a
+// post-purchase upsell on tickets under $40), prices ~0.9x the Amazin anchor,
+// films/briefs 4 fitting creatives, runs a $40/day CBO broad campaign and manages
+// it daily like a media buyer: kills losers, scales ≤20% above 1.3x break-even ROAS
+// only when cash flow can carry it, refreshes creatives on frequency/CTR decay and
+// answers copycat waves with new creatives. From day ~55 it adds a product every
+// ~30 days (up to 4), moves to the sourcing agent and US 3PL stock once volume
+// allows, pays ads from checking, keeps a weekend cash buffer, raises its card limit.
+// NOVICE: random product, supplier copy and default import price, one supplier-edit
 // creative, $50/day broad, doubles the budget after any sale, never refreshes,
-// never answers tickets.
+// never answers tickets. Does follow the on-screen setup checklists (DSerz + the
+// Fadbook channel app, i.e. the pixel) and re-submits / replaces a rejected ad.
 //
 // Hidden fields (archetype, perceivedValue, best hooks…) are never used for
 // decisions; they are printed at the end only as a diagnostic.
@@ -42,12 +65,53 @@ import * as finance from '../src/sim/finance'
 import * as events from '../src/sim/events'
 import { freeze } from 'immer'
 import { FORMATS, FORMAT_LIST, SUPPLIER_EDIT_FORMATS } from '../src/data/creativeTaxonomy'
+// diagnostics only (never used for bot decisions): the daily account-restriction hazard
+import { accountBanRisk } from '../src/sim/ads/accounts'
 
-const SEED = Number(process.argv[2] ?? 20260302) || 20260302
-const DAYS = Math.max(10, Number(process.argv[3] ?? 150) || 150)
+// ---------------------------------------------------------------------------
+// CLI
+// ---------------------------------------------------------------------------
+const ARGV = process.argv.slice(2)
+function flag(name: string): string | undefined {
+  const i = ARGV.indexOf(`--${name}`)
+  if (i < 0) return undefined
+  const v = ARGV[i + 1]
+  return v == null || v.startsWith('--') ? '' : v
+}
+const POSITIONAL = ARGV.filter((a, i) => !a.startsWith('--') && !(i > 0 && ARGV[i - 1].startsWith('--') && ARGV[i - 1] !== '--runs'))
+const SEED = Number(POSITIONAL[0] ?? 20260302) || 20260302
+const DAYS = Math.max(10, Number(flag('days') ?? POSITIONAL[1] ?? 150) || 150)
 const PRINT_EVERY = 15
-/** Normal by default; SMOKE_DIFFICULTY=chill|realistic for a quick robustness run on the other modes. */
-const DIFFICULTY: Difficulty = (['chill', 'normal', 'realistic'] as const).find(x => x === process.env.SMOKE_DIFFICULTY) ?? 'normal'
+const DIFFS = ['chill', 'normal', 'realistic'] as const
+const diffArg = flag('difficulty') ?? process.env.SMOKE_DIFFICULTY ?? 'normal'
+const DIFFICULTIES: Difficulty[] = diffArg === 'all' ? [...DIFFS] : [DIFFS.find(x => x === diffArg) ?? 'normal']
+/** Difficulty of the run in progress (set per run in multi-seed mode). */
+let DIFFICULTY: Difficulty = DIFFICULTIES[0]
+const PICK = flag('pick') || process.env.SMOKE_PICK || undefined
+const AOV = (['on', 'off', 'auto'] as const).find(x => x === flag('aov')) ?? 'auto'
+/** novice follows the Shopifly/Fadbook setup checklists and connects the pixel (--novice-pixel off = strawman without it) */
+const NOVICE_PIXEL = flag('novice-pixel') !== 'off'
+/** --novice-pick popular: the novice clicks AliExprez "Bestsellers" (pick weighted by public 30-day orders) instead of a uniform pick */
+const NOVICE_POPULAR = flag('novice-pick') === 'popular'
+function parseSeeds(v: string | undefined): number[] | null {
+  if (v == null || v === '') return null
+  if (/^\d+$/.test(v) && Number(v) <= 500) return Array.from({ length: Number(v) }, (_, i) => i + 1)
+  const range = v.match(/^(\d+)-(\d+)$/)
+  if (range) {
+    const [a, b] = [Number(range[1]), Number(range[2])]
+    return Array.from({ length: Math.max(0, b - a + 1) }, (_, i) => a + i)
+  }
+  return v.split(',').map(Number).filter(n => Number.isFinite(n) && n > 0)
+}
+const SEEDS = parseSeeds(flag('seeds'))
+const MULTI = !!SEEDS && (SEEDS.length > 1 || DIFFICULTIES.length > 1)
+const SHOW_RUNS = ARGV.includes('--runs')
+/** --only novice|competent: simulate one player only (faster tuning loops; the other's rows read as zero) */
+const ONLY = flag('only') === 'novice' || flag('only') === 'competent' ? flag('only') : undefined
+/** competent player's product = candidate #((seed-1) mod TOP) of its ranking (skilled players differ on the final call) */
+const TOP = Math.max(1, Number(flag('top') ?? (MULTI ? 3 : 1)) || 1)
+/** how many products the competent player will run at most (it adds one every ~30 days from day 55) */
+const MAX_PRODUCTS = Math.max(1, Number(flag('products') ?? 4) || 4)
 
 // ---------------------------------------------------------------------------
 // small utils (the scripts' own RNG — never touches the game's RNG stream)
@@ -84,7 +148,23 @@ function wagesFor(s: GameState, from: number, to: number): number {
 // ---------------------------------------------------------------------------
 // Bot plumbing
 // ---------------------------------------------------------------------------
-interface DayRow { day: number; revenue: number; adSpend: number; orders: number; sessions: number; profit: number }
+interface DayRow {
+  day: number; revenue: number; adSpend: number; orders: number; sessions: number; profit: number
+  /** ad spend actually delivered that day (adSpend above is what the platforms billed) */
+  spend: number
+  /** 7-day frequency of that day's top-spending ad (what Ads Manager shows in the Frequency column) */
+  topFreq: number
+  /** that ad's spend that day */
+  topSpend: number
+  /** daily restriction probability of the ad accounts that delivered yesterday (diagnostic) */
+  banHazard: number
+  linkClicks: number
+  impressions: number
+  /** ad-attributed truth (what Shopifly's UTM report would show per ad): landing page views, purchases, revenue */
+  lpv: number
+  adPurchases: number
+  adRevenue: number
+}
 interface Bot {
   name: string
   s: GameState
@@ -111,6 +191,30 @@ function recordDay(bot: Bot, day: number) {
   const s = bot.s
   const snap = s.history.find(h => h.day === day)
   const a = s.store.analytics.daily[day]
+  let spend = 0, linkClicks = 0, impressions = 0, topSpend = 0, topFreq = 0, lpv = 0, adPurchases = 0, adRevenue = 0
+  for (const ad of s.ads.ads) {
+    const st = ad.stats[day]
+    if (!st) continue
+    spend += st.spend
+    linkClicks += st.linkClicks
+    impressions += st.impressions
+    lpv += st.lpv
+    adPurchases += st.truePurchases
+    adRevenue += st.trueRevenue
+    if (st.spend > topSpend) {
+      topSpend = st.spend
+      let imps = 0, reach = 0
+      for (let d = day - 6; d <= day; d++) { imps += ad.stats[d]?.impressions ?? 0; reach += ad.stats[d]?.reach ?? 0 }
+      topFreq = reach > 0 ? imps / reach : 0
+    }
+  }
+  let keep = 1
+  for (const acc of s.ads.accounts) {
+    if (acc.status !== 'active' || !(acc.yesterdaySpend && acc.yesterdaySpend > 0)) continue
+    const r = accountBanRisk(s, acc)
+    keep *= 1 - Math.min(0.5, r.p)
+    if (process.env.SMOKE_BAN === bot.name && r.p > 0.0006) console.log(`    ban d${day + 1} p ${(r.p * 1000).toFixed(2)}‰ ${r.dominant} claim ${r.claim.toFixed(2)} cb ${pct(r.chargebackRatio)} honesty ${r.minHonesty.toFixed(2)} q ${Math.round(acc.quality)} failed ${acc.failedPayments ?? 0} age ${day - acc.createdDay}`)
+  }
   bot.rows.push({
     day,
     revenue: snap?.revenue ?? 0,
@@ -118,6 +222,7 @@ function recordDay(bot: Bot, day: number) {
     orders: a?.orders ?? snap?.orders ?? 0,
     sessions: a?.sessions ?? 0,
     profit: dayProfit(s, day),
+    spend, topFreq, topSpend, banHazard: 1 - keep, linkClicks, impressions, lpv, adPurchases, adRevenue,
   })
 }
 
@@ -284,30 +389,42 @@ function formatIdByName(name?: string): FormatId | null {
   return FORMAT_LIST.find(f => f.name === name)?.id ?? null
 }
 
+/** One product the competent player runs: its page, creatives and Fadbook campaign. */
+interface Line {
+  spId: string
+  catalogId: string
+  campaignId: string
+  adSetId: string
+  creatives: string[] // ordered creative ids
+  adByCreative: Record<string, string>
+  pendingRefresh: string[] // creative ids ordered for a refresh
+  swaps: string[] // refresh ads waiting for review before they replace a tired ad
+  rereviewed: string[]
+  hooks: HookId[]
+  formats: FormatId[]
+  briefsDone: number
+  ugcOrdered: boolean
+  launched: number
+  addedDay: number
+  lastScaleDay: number
+  mediaSynced: number
+  killed: number
+  scaled: number
+  cuts: number
+  refreshes: number
+  bulkOrders: number
+  agent: boolean
+}
+
 function makeCompetent(seed: number): Bot {
   const s = createNewGame({ playerName: 'Casey Pro', difficulty: DIFFICULTY, seed })
-  const st = {
-    spId: '', catalogId: '', campaignId: '', adSetId: '',
-    creatives: [] as string[], // ordered creative ids
-    adByCreative: {} as Record<string, string>,
-    usedHooks: [] as HookId[],
-    usedFormats: [] as FormatId[],
-    briefsDone: 0,
-    ugcOrdered: false,
-    launched: -1,
-    quitDay: -1,
-    pendingRefresh: [] as string[], // creative ids ordered for a refresh
-    swaps: [] as string[], // refresh ads waiting for review before they replace a tired ad
-    rereviewed: [] as string[],
-    lastScaleDay: -99,
-    killed: 0,
-    scaled: 0,
-    cuts: 0,
-    refreshes: 0,
-    mediaSynced: 0,
-    hooks: [] as HookId[],
-    formats: [] as FormatId[],
-  }
+  const lines: Line[] = []
+  const st = { quitDay: -1, lastLaunchDay: -99, bankBilling: false, creditRaises: 0, lowWater: {} as Record<number, number> }
+  /** money that can pay the next ad bill: checking + free card limit − ad spend not billed yet */
+  const liquidity = () => s.finance.cash + Math.max(0, s.finance.card.limit - s.finance.card.balance) - s.ads.accounts.reduce((a, x) => a + x.unbilled, 0)
+  /** lowest liquidity seen over the last `n` days (weekends without payouts are what break accounts) */
+  const lowWater = (n: number) => { let m = Infinity; for (let x = today(s) - n; x <= today(s); x++) if (st.lowWater[x] != null) m = Math.min(m, st.lowWater[x]); return m }
+  const totalBudget = () => lines.reduce((a, l) => a + (s.ads.campaigns.find(c => c.id === l.campaignId && c.status === 'active')?.dailyBudget ?? 0), 0)
   const bot: Bot = {
     name: 'COMPETENT',
     s,
@@ -318,35 +435,6 @@ function makeCompetent(seed: number): Bot {
       store.createStore(s, { name: 'Northwind Goods' })
       for (const app of ['dserz', 'fadbook-channel', 'judgyme', 'trustbadgz']) store.installApp(s, app)
       market.subscribeSpyTool(s) // Mineo: see advertisers, ad age and the hooks competitors run
-      const ranked = scoreCandidates(s)
-      const forced = process.env.SMOKE_PICK ? ranked.find(c => c.id === process.env.SMOKE_PICK) : undefined
-      const pick = forced ?? ranked[0]
-      st.catalogId = pick.id
-      const def = market.getProduct(pick.id)
-      bot.notes.push(`picked ${def.name} (gap ${pick.gap.toFixed(2)}x, orders ${pick.orders}, growth ${pick.growth.toFixed(2)}, advertisers ${pick.advertisers}, rating ${pick.rating})`)
-      bot.notes.push(`runner-ups: ${ranked.slice(1, 4).map(c => `${market.getProduct(c.id).name} (${c.score.toFixed(2)})`).join(', ')}`)
-      market.startResearch(s, pick.id)
-      market.orderSample(s, pick.id)
-      st.spId = store.importProduct(s, pick.id)
-      // page
-      const win = store.realDeliveryWindow(s, pick.id)
-      const promise: [number, number] = [win[0], win[1] + 2]
-      const anchor = def.amazonPrice ?? market.spyData(s, pick.id)?.competitorPrice ?? def.cogs * 4
-      const price = round99(anchor * 0.9)
-      const media = Array.from({ length: 6 }, (_, i) => ({ id: `m_sup_${i}`, kind: 'supplier' as const, src: '', alt: `${def.name} — view ${i + 1}`, variant: i }))
-      store.updateProduct(s, st.spId, {
-        title: proTitle(def),
-        descriptionHtml: proDescription(def, promise),
-        price,
-        compareAtPrice: round99(Math.max(anchor * 1.15, price / 0.75)),
-        media,
-        sections: proSections(def, promise),
-        promisedDays: promise,
-        productType: cap(def.niche),
-        tags: [def.niche, 'bestseller'],
-      })
-      store.importReviews(s, st.spId, 60, 4)
-      store.setProductStatus(s, st.spId, 'active')
       // policies, payments, domain
       const policies = { ...s.store.policies }
       for (const k of ['refund', 'shipping', 'privacy', 'terms'] as const) policies[k] = store.generatePolicy(s, k)
@@ -356,38 +444,31 @@ function makeCompetent(seed: number): Bot {
       if (q.ok) store.buyDomain(s, q.domain)
       ads.openAdAccount(s, 'fadbook')
       finance.setAutopay(s, 'full')
-      // what the top competitor ads use (Mineo), in order of engagement
-      const spy = market.spyData(s, pick.id)
-      for (const a of spy?.topAds ?? []) {
-        if (a.hookId && !st.hooks.includes(a.hookId)) st.hooks.push(a.hookId)
-        const f = formatIdByName(a.format)
-        if (f && !st.formats.includes(f) && FORMATS[f].producers.includes('self')) st.formats.push(f)
-      }
-      if (!st.formats.length) st.formats.push('demo_video', 'ugc_testimonial')
-      if (!st.hooks.length) st.hooks.push('problem_callout', 'pov', 'testimonial')
-      const sp = s.store.products.find(p => p.id === st.spId)!
-      bot.notes.push(`page grade ${sp.grade?.score.toFixed(1)} at ${usd(sp.price)} (anchor ${usd(anchor)}), break-even ROAS ${store.breakEven(s, st.spId).breakEvenRoas}`)
+      const ranked = scoreCandidates(s)
+      const forced = PICK ? ranked.find(c => c.id === PICK) : undefined
+      const pick = forced ?? ranked[Math.min(ranked.length - 1, (Math.max(1, seed) - 1) % TOP)]
+      bot.notes.push(`runner-ups: ${ranked.filter(c => c.id !== pick.id).slice(0, 3).map(c => `${market.getProduct(c.id).name} (${c.score.toFixed(2)})`).join(', ')}`)
+      launchLine(pick)
     },
     hourly() {
       const h = hourOfDay(s.time.hour)
-      // brief creatives as soon as the sample is in hand
-      if (st.briefsDone < 3 && s.catalog.samplesOwned.includes(st.catalogId) && !s.player.queue.some(a => a.kind === 'film_creative')) {
-        const i = st.briefsDone
-        orderBrief(i, 'self')
-      }
-      if (!st.ugcOrdered && s.catalog.samplesOwned.includes(st.catalogId)) {
-        const def = market.getProduct(st.catalogId)
-        const creators = s.creatives.creators
-          .filter(c => c.pricePerVideo <= 320)
-          .sort((a, b) => score(b) - score(a))
-        function score(c: typeof creators[number]) { return (c.niches.includes(def.niche) ? 1 : 0) + c.rating - 4 + (c.quality[0] + c.quality[1]) / 2 - c.pricePerVideo / 600 }
-        if (creators[0]) {
-          const id = orderBrief(3, 'ugc', creators[0].id)
-          if (id) st.ugcOrdered = true
+      const d0 = today(s)
+      st.lowWater[d0] = Math.min(st.lowWater[d0] ?? Infinity, liquidity())
+      delete st.lowWater[d0 - 15]
+      // a failed ad charge: pay it as soon as the payout lands (checking notifications, not once a day)
+      for (const acc of s.ads.accounts) if (acc.status === 'payment_failed' && s.finance.cash > acc.unbilled) ads.payAdBalance(s, acc.id)
+      for (const line of lines) {
+        // brief creatives as soon as the sample is in hand (one filming job queued at a time)
+        if (line.briefsDone < 3 && s.catalog.samplesOwned.includes(line.catalogId) && !s.player.queue.some(a => a.kind === 'film_creative')) orderBrief(line, line.briefsDone, 'self')
+        if (!line.ugcOrdered && s.catalog.samplesOwned.includes(line.catalogId)) {
+          const def = market.getProduct(line.catalogId)
+          const score = (c: GameState['creatives']['creators'][number]) => (c.niches.includes(def.niche) ? 1 : 0) + c.rating - 4 + (c.quality[0] + c.quality[1]) / 2 - c.pricePerVideo / 600
+          const creators = s.creatives.creators.filter(c => c.pricePerVideo <= 320).sort((a, b) => score(b) - score(a))
+          if (creators[0] && orderBrief(line, 3, 'ugc', creators[0].id)) line.ugcOrdered = true
         }
+        // launch / extend the campaign as creatives become ready (any hour — like checking notifications)
+        if (h >= 7 && h <= 22) launchOrExtend(line)
       }
-      // launch / extend the campaign as creatives become ready (any hour — like checking notifications)
-      if (h >= 7 && h <= 22) launchOrExtend()
       // support: work the queue in the evening (and whenever it gets long)
       const open = store.openTicketCount(s)
       const queued = [s.player.activity, ...s.player.queue].some(a => a?.kind === 'customer_support')
@@ -401,11 +482,13 @@ function makeCompetent(seed: number): Bot {
     },
     daily() {
       const d = today(s)
-      manageAds(d)
-      syncMedia()
-      // pay the card down with spare cash (keep a buffer for bills)
-      const spare = s.finance.cash - 350
-      if (spare > 50 && s.finance.card.balance > 0) finance.payCardBalance(s, Math.min(spare, s.finance.card.balance))
+      for (const line of lines) {
+        manageAds(line, d)
+        syncMedia(line)
+        sourcingStep(line, d)
+      }
+      expand(d)
+      cashStep(d)
       // quit McDoodle's once the business reliably out-earns the job 2:1
       if (s.job.employed && d >= 21) {
         let profit = 0
@@ -417,37 +500,171 @@ function makeCompetent(seed: number): Bot {
           bot.notes.push(`quit McDoodle's on day ${d + 1} (14-day profit ${usd(profit)} vs wages ${usd(wages)})`)
         }
       }
-      // Mineo is only needed for research: stop the subscription after the first month
-      if (d === 25 && market.spyToolActive(s)) market.cancelSpyTool(s)
+      // Mineo is only needed for research: cancel it ~3 weeks after the last product launch
+      if (market.spyToolActive(s) && d - st.lastLaunchDay >= 22) market.cancelSpyTool(s)
     },
     pickChoice(m) {
       return pickByPreference(m, ['appeal', 'verify', 'refresh', 'decline', 'help', 'go', 'pay', 'stay', 'accept', 'ok'])
     },
     summary() {
-      return [
-        `ads killed ${st.killed}, budget scale-ups ${st.scaled}, cuts ${st.cuts}, creative refreshes ${st.refreshes}, launched day ${st.launched + 1}, quit job ${st.quitDay >= 0 ? `day ${st.quitDay + 1}` : 'no'}`,
-        ...adReport(s),
-      ]
+      const out = lines.map(l => {
+        const def = market.getProduct(l.catalogId)
+        const inv = s.catalog.inventory[l.catalogId]?.units ?? 0
+        return `${def.name}: added day ${l.addedDay + 1}, ads launched day ${l.launched + 1}, killed ${l.killed}, scale-ups ${l.scaled}, cuts ${l.cuts}, refreshes ${l.refreshes}, fulfillment ${s.catalog.sourcing[l.catalogId]?.mode ?? 'dropship'}${l.bulkOrders ? ` (${l.bulkOrders} bulk orders, ${inv} units on hand)` : ''}`
+      })
+      out.push(`quit job ${st.quitDay >= 0 ? `day ${st.quitDay + 1}` : 'no'}, ad bills from checking: ${st.bankBilling ? 'yes' : 'no'}, credit-limit raises ${st.creditRaises} (limit ${usd(s.finance.card.limit)})`)
+      return [...out, ...adReport(s)]
     },
   }
 
-  function orderBrief(i: number, producer: 'self' | 'ugc', creatorId?: string): string | null {
-    const def = market.getProduct(st.catalogId)
-    const hooks = st.hooks
-    const hook = hooks[i % hooks.length]
-    let format: FormatId = st.formats[i % st.formats.length]
+  // -------------------------------------------------------------------------
+  // Product lines
+  // -------------------------------------------------------------------------
+  function launchLine(pick: CandidateScore) {
+    const d = today(s)
+    const def = market.getProduct(pick.id)
+    bot.notes.push(`day ${d + 1}: picked ${def.name} (gap ${pick.gap.toFixed(2)}x, orders ${pick.orders}, growth ${pick.growth.toFixed(2)}, advertisers ${pick.advertisers}, rating ${pick.rating})`)
+    market.startResearch(s, pick.id)
+    market.orderSample(s, pick.id)
+    const spId = store.importProduct(s, pick.id)
+    const win = store.realDeliveryWindow(s, pick.id)
+    const promise: [number, number] = [win[0], win[1] + 2]
+    const anchor = def.amazonPrice ?? market.spyData(s, pick.id)?.competitorPrice ?? def.cogs * 4
+    const price = round99(anchor * 0.9)
+    const media = Array.from({ length: 6 }, (_, i) => ({ id: `m_sup_${pick.id}_${i}`, kind: 'supplier' as const, src: '', alt: `${def.name} — view ${i + 1}`, variant: i }))
+    const sections = proSections(def, promise)
+    // low tickets need AOV levers: quantity breaks (Bundlr) + a post-purchase upsell (ReKonvert)
+    const aov = AOV === 'on' || (AOV === 'auto' && price < 40)
+    if (aov) {
+      for (const app of ['bundlr', 'rekonvert']) if (!s.store.apps.some(a => a.appId === app)) store.installApp(s, app)
+      sections.push({
+        id: 'bundle_offer', enabled: true,
+        settings: { tiers: [{ qty: 1, discountPct: 0, label: 'Buy 1' }, { qty: 2, discountPct: 10, label: 'Buy 2, save 10%', badge: 'Most popular' }, { qty: 3, discountPct: 15, label: 'Buy 3, save 15%', badge: 'Best value' }] },
+      })
+    }
+    store.updateProduct(s, spId, {
+      title: proTitle(def),
+      descriptionHtml: proDescription(def, promise),
+      price,
+      compareAtPrice: round99(Math.max(anchor * 1.15, price / 0.75)),
+      media,
+      sections,
+      promisedDays: promise,
+      productType: cap(def.niche),
+      tags: [def.niche, 'bestseller'],
+    })
+    store.importReviews(s, spId, 60, 4)
+    store.setProductStatus(s, spId, 'active')
+    // what the top competitor ads use (Mineo), in order of engagement
+    const hooks: HookId[] = []
+    const formats: FormatId[] = []
+    for (const a of market.spyData(s, pick.id)?.topAds ?? []) {
+      if (a.hookId && !hooks.includes(a.hookId)) hooks.push(a.hookId)
+      const f = formatIdByName(a.format)
+      if (f && !formats.includes(f) && FORMATS[f].producers.includes('self')) formats.push(f)
+    }
+    if (!formats.length) formats.push('demo_video', 'ugc_testimonial')
+    if (!hooks.length) hooks.push('problem_callout', 'pov', 'testimonial')
+    lines.push({
+      spId, catalogId: pick.id, campaignId: '', adSetId: '', creatives: [], adByCreative: {}, pendingRefresh: [], swaps: [], rereviewed: [],
+      hooks, formats, briefsDone: 0, ugcOrdered: false, launched: -1, addedDay: d, lastScaleDay: -99, mediaSynced: 0,
+      killed: 0, scaled: 0, cuts: 0, refreshes: 0, bulkOrders: 0, agent: false,
+    })
+    st.lastLaunchDay = d
+    const sp = s.store.products.find(p => p.id === spId)!
+    bot.notes.push(`  page grade ${sp.grade?.score.toFixed(1)} at ${usd(sp.price)} (anchor ${usd(anchor)}), break-even ROAS ${store.breakEven(s, spId).breakEvenRoas}${aov ? ', AOV levers: Bundlr quantity breaks (2 = -10%, 3 = -15%) + ReKonvert upsell' : ''}`)
+  }
+
+  /** Months 2–6: add the next product once the first one pays and cash allows (products burn out as copycats pile in). */
+  function expand(d: number) {
+    if (lines.length >= MAX_PRODUCTS || d < 55 || d - st.lastLaunchDay < 30) return
+    let profit14 = 0
+    for (let x = d - 14; x < d; x++) profit14 += dayProfit(s, x)
+    if (profit14 <= 500 || lowWater(7) < 2500 + 2 * totalBudget()) return
+    if (!market.spyToolActive(s)) { market.subscribeSpyTool(s); return } // research with Mineo first, pick tomorrow
+    const taken = new Set(lines.map(l => l.catalogId))
+    const next = scoreCandidates(s).find(c => !taken.has(c.id) && c.gap >= 2.5)
+    if (next) launchLine(next)
+  }
+
+  /** Agent after 100 orders (if cheaper), US 3PL stock once a product sells steadily and cash allows. */
+  function sourcingStep(line: Line, d: number) {
+    const u = s.catalog.unlocks
+    const src = s.catalog.sourcing[line.catalogId]?.mode ?? 'dropship'
+    if (u.agent && !line.agent && src === 'dropship') {
+      line.agent = true
+      const quote = market.requestAgentQuote(s, line.catalogId)
+      const now = market.landedCost(s, line.catalogId)
+      const def = market.getProduct(line.catalogId)
+      if (quote != null && quote * (1 + market.dutyPct(line.catalogId)) + 4.5 + 2.5 * Math.max(0, def.weightKg - 0.5) <= now * 1.05) market.setFulfillmentMode(s, line.catalogId, 'agent')
+    }
+    if (u.threePL && d >= 50) {
+      const perDay = market.recentSales(s, line.catalogId, 7).units / 7
+      const inv = s.catalog.inventory[line.catalogId]?.units ?? 0
+      const pending = s.catalog.bulkOrders.filter(o => o.catalogId === line.catalogId && o.status !== 'received')
+      const incoming = pending.reduce((a, o) => a + o.qty, 0)
+      const cover = perDay > 0 ? (inv + incoming) / perDay : Infinity
+      const def = market.getProduct(line.catalogId)
+      // sea freight for ~60 days of sales whenever stock + stock on the water covers < 50 days (dropship/agent
+      // keeps shipping meanwhile); a small air top-up only if the shelf would run dry before the boat lands
+      let order: { qty: number; method: 'sea' | 'air' } | null = null
+      if (perDay >= 12 && cover < 50) order = { qty: Math.max(def.moq, Math.round((perDay * 60) / 50) * 50), method: 'sea' }
+      else if (perDay >= 12 && inv > 0 && inv / perDay < 12 && !pending.some(o => o.arriveDay - d <= 12)) order = { qty: Math.max(def.moq, Math.round((perDay * 20) / 50) * 50), method: 'air' }
+      if (order) {
+        const q = market.bulkQuote(s, line.catalogId, order.qty, order.method, 'bulk')
+        // stock only with checking money that isn't needed for the next week of ad bills
+        const adBudget = lines.reduce((a, l) => a + (s.ads.campaigns.find(c => c.id === l.campaignId)?.dailyBudget ?? 0), 0)
+        if (q.ok && s.finance.cash - q.total > 7 * adBudget + 1000 && market.placeBulkOrder(s, line.catalogId, order.qty, order.method, 'bulk')) {
+          line.bulkOrders++
+          bot.notes.push(`day ${d + 1}: bulk order ${order.qty} × ${def.name} by ${order.method} (${usd(q.total)}, ${usd(q.landedUnit)}/unit landed, ~${Math.round(perDay)} units/day)`)
+        }
+      }
+    }
+    // keep the delivery promise honest with the route actually used (3PL stock, agent, or fallback to AliExprez)
+    const sp = s.store.products.find(p => p.id === line.spId)
+    if (sp) {
+      const win = store.realDeliveryWindow(s, line.catalogId)
+      const want: [number, number] = [win[0], win[1] + 2]
+      if (!sp.promisedDays || sp.promisedDays[0] !== want[0] || sp.promisedDays[1] !== want[1]) {
+        const sec = sp.sections.map(x => x.id === 'shipping_info' ? { ...x, settings: { ...x.settings, minDays: want[0], maxDays: want[1] } } : x)
+        store.updateProduct(s, sp.id, { promisedDays: want, sections: sec })
+      }
+    }
+  }
+
+  /** Cash management: pay ads from checking once it can carry them, keep a buffer for bills, raise the card limit. */
+  function cashStep(d: number) {
+    const adBudget = lines.reduce((a, l) => a + (s.ads.campaigns.find(c => c.id === l.campaignId)?.dailyBudget ?? 0), 0)
+    if (!st.bankBilling && s.finance.cash > Math.max(2500, 2 * adBudget)) {
+      for (const acc of s.ads.accounts) acc.payWith = 'bank' // Fadbook Billing → payment method (what the UI does)
+      st.bankBilling = true
+    }
+    // pay the card down with spare cash, keeping ~1.5 days of ad spend in checking
+    const spare = s.finance.cash - Math.max(350, 1.5 * adBudget)
+    if (spare > 50 && s.finance.card.balance > 0) finance.payCardBalance(s, Math.min(spare, s.finance.card.balance))
+    if (finance.creditIncreaseEligibility(s, d).ok && finance.requestCreditIncrease(s).ok) st.creditRaises++
+    // budget sanity if an account can't bill: pay the ad balance
+    for (const acc of s.ads.accounts) if (acc.status === 'payment_failed') ads.payAdBalance(s, acc.id)
+  }
+
+  // -------------------------------------------------------------------------
+  // Creatives & campaign
+  // -------------------------------------------------------------------------
+  function orderBrief(line: Line, i: number, producer: 'self' | 'ugc', creatorId?: string): string | null {
+    const def = market.getProduct(line.catalogId)
+    const hook = line.hooks[i % line.hooks.length]
+    let format: FormatId = line.formats[i % line.formats.length]
     if (!FORMATS[format].producers.includes(producer)) format = producer === 'ugc' ? 'ugc_testimonial' : 'demo_video'
-    if (producer === 'ugc' && FORMATS.ugc_testimonial.producers.includes('ugc')) format = st.formats.find(f => FORMATS[f].talking) ?? 'ugc_testimonial'
+    if (producer === 'ugc' && FORMATS.ugc_testimonial.producers.includes('ugc')) format = line.formats.find(f => FORMATS[f].talking) ?? 'ugc_testimonial'
     const angles = NICHE_ANGLES[def.niche]
     const angle = angles[i % angles.length]
     const hookText = market.hookTextFor(def, hook, i)
     const id = ads.orderCreative(s, {
-      catalogId: st.catalogId, name: '', format, hook, angle, beats: beatsForHook(hook), hookText, script: scriptFor(def), producer, creatorId: creatorId ?? null,
+      catalogId: line.catalogId, name: '', format, hook, angle, beats: beatsForHook(hook), hookText, script: scriptFor(def), producer, creatorId: creatorId ?? null,
     })
     if (id) {
-      st.creatives.push(id)
-      st.briefsDone += producer === 'self' ? 1 : 0
-      if (!st.usedHooks.includes(hook)) st.usedHooks.push(hook)
+      line.creatives.push(id)
+      line.briefsDone += producer === 'self' ? 1 : 0
     }
     return id
   }
@@ -461,48 +678,48 @@ function makeCompetent(seed: number): Bot {
     }
   }
 
-  function launchOrExtend() {
-    const ready = st.creatives.map(id => s.creatives.creatives.find(c => c.id === id)).filter((c): c is Creative => !!c && c.status === 'ready')
-    const def = market.getProduct(st.catalogId)
-    if (!st.campaignId) {
-      if (ready.length < 2 && !(ready.length >= 1 && today(s) > 30)) return
+  function launchOrExtend(line: Line) {
+    const ready = line.creatives.map(id => s.creatives.creatives.find(c => c.id === id)).filter((c): c is Creative => !!c && c.status === 'ready')
+    const def = market.getProduct(line.catalogId)
+    if (!line.campaignId) {
+      if (ready.length < 2 && !(ready.length >= 1 && today(s) - line.addedDay > 30)) return
       const cid = ads.createCampaign(s, { platform: 'fadbook', name: `${def.name} | CBO | Broad`, budgetMode: 'cbo', dailyBudget: 40 })
       if (!cid) return
       const setId = ads.createAdSet(s, { campaignId: cid, name: 'Broad US', targeting: { type: 'broad' } })
       if (!setId) return
-      st.campaignId = cid
-      st.adSetId = setId
-      st.launched = today(s)
+      line.campaignId = cid
+      line.adSetId = setId
+      line.launched = today(s)
     }
     const copy = adCopy(def)
     for (const c of ready) {
-      if (st.adByCreative[c.id]) continue
-      const adId = ads.createAd(s, { adSetId: st.adSetId, name: c.name, creativeId: c.id, storeProductId: st.spId, ...copy, cta: 'shop_now' })
+      if (line.adByCreative[c.id]) continue
+      const adId = ads.createAd(s, { adSetId: line.adSetId, name: c.name, creativeId: c.id, storeProductId: line.spId, ...copy, cta: 'shop_now' })
       if (adId) {
-        st.adByCreative[c.id] = adId
+        line.adByCreative[c.id] = adId
         // a refresh replaces the most fatigued ad once the new one has passed review
-        const ri = st.pendingRefresh.indexOf(c.id)
+        const ri = line.pendingRefresh.indexOf(c.id)
         if (ri >= 0) {
-          st.pendingRefresh.splice(ri, 1)
-          st.swaps.push(adId)
+          line.pendingRefresh.splice(ri, 1)
+          line.swaps.push(adId)
         }
       }
     }
   }
 
   /** Swap refreshed ads in (after approval); re-request review once on a rejection. */
-  function handleSwaps() {
-    for (const adId of [...st.swaps]) {
+  function handleSwaps(line: Line) {
+    for (const adId of [...line.swaps]) {
       const ad = s.ads.ads.find(a => a.id === adId)
-      if (!ad || ad.status !== 'active') { st.swaps.splice(st.swaps.indexOf(adId), 1); continue }
+      if (!ad || ad.status !== 'active') { line.swaps.splice(line.swaps.indexOf(adId), 1); continue }
       if (ad.review === 'rejected') {
-        if (!st.rereviewed.includes(adId)) { st.rereviewed.push(adId); ads.requestAdReview(s, adId) }
-        else { ads.setEntityStatus(s, 'ad', adId, 'paused'); st.swaps.splice(st.swaps.indexOf(adId), 1) }
+        if (!line.rereviewed.includes(adId)) { line.rereviewed.push(adId); ads.requestAdReview(s, adId) }
+        else { ads.setEntityStatus(s, 'ad', adId, 'paused'); line.swaps.splice(line.swaps.indexOf(adId), 1) }
         continue
       }
       if (ad.review !== 'approved') continue
-      st.swaps.splice(st.swaps.indexOf(adId), 1)
-      const others = liveAds().filter(a => a.id !== adId)
+      line.swaps.splice(line.swaps.indexOf(adId), 1)
+      const others = liveAds(line).filter(a => a.id !== adId)
       const tired = others.map(a => ({ a, f: tiredness(a.id) })).sort((x, y) => y.f - x.f)[0]
       if (tired && tired.f >= 1) ads.setEntityStatus(s, 'ad', tired.a.id, 'paused')
       else if (others.length >= 5) {
@@ -514,8 +731,8 @@ function makeCompetent(seed: number): Bot {
   }
 
   /** Ads that can actually deliver (on, and approved by review). */
-  function liveAds() {
-    return s.ads.ads.filter(a => a.adSetId === st.adSetId && a.status === 'active' && a.review === 'approved')
+  function liveAds(line: Line) {
+    return s.ads.ads.filter(a => a.adSetId === line.adSetId && a.status === 'active' && a.review === 'approved')
   }
   function freq7(adId: string): number {
     const ad = s.ads.ads.find(a => a.id === adId)
@@ -547,9 +764,9 @@ function makeCompetent(seed: number): Bot {
     return first > 0 ? ctr(days.slice(-5)) / first : 1
   }
 
-  /** Account banned and the appeal failed → open a backup account and rebuild the campaign there. */
-  function recoverAccount() {
-    const camp = s.ads.campaigns.find(c => c.id === st.campaignId)
+  /** Account banned and the appeal failed → open a backup account and rebuild the campaigns there. */
+  function recoverAccount(line: Line) {
+    const camp = s.ads.campaigns.find(c => c.id === line.campaignId)
     const acc = camp && s.ads.accounts.find(a => a.id === camp.accountId)
     if (!camp || !acc || (acc.status !== 'restricted' && acc.status !== 'disabled')) return
     if (!acc.appealDenied && (acc.appeal || acc.status === 'restricted')) return // wait for the appeal
@@ -557,86 +774,100 @@ function makeCompetent(seed: number): Bot {
     const working = s.ads.accounts.find(a => a.platform === 'fadbook' && a.status === 'active')
       ?? s.ads.accounts.find(a => a.id === (ads.openAccountBlocker(s, 'fadbook') ? ads.openAdAccount(s, 'fadbook', { rented: true }) : ads.openAdAccount(s, 'fadbook')))
     if (!working) return
+    if (st.bankBilling) working.payWith = 'bank'
     const copy = ads.copyCampaignToAccount(s, camp.id, working.id)
     if (!copy) return
-    st.campaignId = copy
-    st.adSetId = s.ads.adSets.find(x => x.campaignId === copy && x.status !== 'deleted')?.id ?? ''
-    st.adByCreative = {}
-    for (const ad of s.ads.ads.filter(a => a.adSetId === st.adSetId)) st.adByCreative[ad.creativeId] = ad.id
+    line.campaignId = copy
+    line.adSetId = s.ads.adSets.find(x => x.campaignId === copy && x.status !== 'deleted')?.id ?? ''
+    line.adByCreative = {}
+    for (const ad of s.ads.ads.filter(a => a.adSetId === line.adSetId)) line.adByCreative[ad.creativeId] = ad.id
     const nb = s.ads.campaigns.find(c => c.id === copy)
     if (nb?.dailyBudget && nb.dailyBudget > 250) ads.updateCampaign(s, copy, { dailyBudget: 250 }) // new account = low limit, relearn
-    bot.notes.push(`day ${today(s) + 1}: ${acc.status} ad account, appeal denied → moved the campaign to "${working.name}"`)
+    bot.notes.push(`day ${today(s) + 1}: ${acc.status} ad account, appeal denied → moved "${camp.name}" to "${working.name}"`)
   }
 
-  function manageAds(d: number) {
-    if (!st.campaignId) return
-    recoverAccount()
-    handleSwaps()
-    const camp = s.ads.campaigns.find(c => c.id === st.campaignId)
+  function manageAds(line: Line, d: number) {
+    if (!line.campaignId) return
+    recoverAccount(line)
+    handleSwaps(line)
+    const camp = s.ads.campaigns.find(c => c.id === line.campaignId)
     if (!camp || camp.status === 'deleted') return
-    const be = store.breakEven(s, st.spId)
+    const be = store.breakEven(s, line.spId)
     // 1) kill losers: spent > 2x break-even CPA with no reported purchases, or a proven money-loser
-    for (const ad of liveAds()) {
+    for (const ad of liveAds(line)) {
       const t = ads.adTotals(ad)
-      if (liveAds().length <= 1 || d - dayOf(ad.createdHour) < 2) continue
+      if (liveAds(line).length <= 1 || d - dayOf(ad.createdHour) < 2) continue
       const noSales = t.spend > 2 * be.breakEvenCpa && t.purchases === 0
       const loser = t.spend > 6 * be.breakEvenCpa && t.purchaseValue / t.spend < 0.8 * be.breakEvenRoas
       if (noSales || loser) {
         ads.setEntityStatus(s, 'ad', ad.id, 'paused')
-        st.killed++
+        line.killed++
       }
     }
-    // 2) scale winners: blended ROAS (Shopifly sales ÷ ad spend, last 3 days) above 1.3x break-even
-    const last3 = { from: d - 3, to: d - 1 }
-    let rev = 0, spend = 0
-    for (let x = last3.from; x <= last3.to; x++) {
-      rev += s.store.analytics.daily[x]?.totalSales ?? 0
-      const p = s.finance.pnl[x]
-      spend += (p?.adSpendFadbook ?? 0) + (p?.adSpendTiktak ?? 0)
+    // 2) scale winners: blended ROAS (this product's Shopifly sales ÷ Ads Manager spend) above 1.3x break-even.
+    //    Window: last 3 days, stretched up to 7 until it holds ~12 orders (don't steer on 4 sales).
+    //    Spend is what Ads Manager shows as delivered, not the card charges (those land in lumps).
+    let rev = 0, spend = 0, orders = 0, days = 0
+    for (let x = d - 1; x >= d - 7; x--) {
+      const bp = s.store.analytics.daily[x]?.byProduct?.[line.spId]
+      rev += lines.length === 1 ? s.store.analytics.daily[x]?.totalSales ?? 0 : bp?.sales ?? 0
+      orders += lines.length === 1 ? s.store.analytics.daily[x]?.orders ?? 0 : bp?.orders ?? 0
+      spend += ads.statsFor(s, 'campaign', camp.id, { from: x, to: x }).spend
+      days++
+      if (days >= 3 && orders >= 12) break
     }
-    const roas3 = spend > 0 ? rev / spend : 0
+    const roas = spend > 0 ? rev / spend : 0
     const budget = camp.dailyBudget ?? 40
-    const headroom = s.finance.cash + Math.max(0, s.finance.card.limit - s.finance.card.balance)
-    if (spend > budget * 1.5 && roas3 > 1.3 * be.breakEvenRoas && d - st.lastScaleDay >= 1 && headroom > budget * 6) {
-      ads.updateCampaign(s, camp.id, { dailyBudget: Math.round(budget * 1.2) })
-      st.lastScaleDay = d
-      st.scaled++
-    } else if (spend > budget * 1.5 && roas3 < 1.05 * be.breakEvenRoas && budget > 40 && d - st.lastScaleDay >= 2) {
+    // cash discipline: only add budget the bank can carry through a payout-less weekend (lowest liquidity of the
+    // last 7 days ≥ 1.5 days of total ad budget) and never right after a failed ad charge
+    const failedRecently = s.ads.accounts.some(a => a.lastFailedPaymentDay != null && d - a.lastFailedPaymentDay <= 7)
+    const cashOk = lowWater(7) > 1.5 * (totalBudget() + 0.2 * budget) && !failedRecently
+    if (spend > budget * 0.5 * days && roas > 1.3 * be.breakEvenRoas && d - line.lastScaleDay >= 1 && cashOk) {
+      ads.updateCampaign(s, camp.id, { dailyBudget: Math.floor(budget * 1.2) }) // ≤ 20%: no learning reset
+      line.lastScaleDay = d
+      line.scaled++
+    } else if (budget > 40 && d - line.lastScaleDay >= 2 && (failedRecently && lowWater(3) < 0.5 * totalBudget())) {
+      // ad bills are bouncing: step back 20% until cash flow catches up
+      ads.updateCampaign(s, camp.id, { dailyBudget: Math.max(40, Math.round(budget * 0.8)) })
+      line.lastScaleDay = d
+      line.cuts++
+    } else if (spend > budget * 0.5 * days && roas < 1.05 * be.breakEvenRoas && budget > 40 && d - line.lastScaleDay >= 2) {
       // below break-even at this spend level: step back down to where it was profitable
-      ads.updateCampaign(s, camp.id, { dailyBudget: Math.max(40, Math.round(budget * (roas3 < 0.8 * be.breakEvenRoas ? 0.7 : 0.8))) })
-      st.lastScaleDay = d
-      st.cuts++
+      ads.updateCampaign(s, camp.id, { dailyBudget: Math.max(40, Math.round(budget * (roas < 0.8 * be.breakEvenRoas ? 0.7 : 0.8))) })
+      line.lastScaleDay = d
+      line.cuts++
     }
     // 3) creative refresh: 7-day frequency above 3 (or link CTR down 25%+ from its first week, the
     //    other classic fatigue signal) → brief a new angle/hook, swap it in when ready
-    const tired = liveAds().filter(a => tiredness(a.id) >= 1)
-    const live = liveAds().length
-    const needFresh = (tired.length > 0 && live <= 5) || live < 2
-    const inFlight = st.pendingRefresh.filter(id => s.creatives.creatives.find(c => c.id === id)?.status !== 'failed').length + st.swaps.length
-    if (needFresh && inFlight === 0 && s.catalog.samplesOwned.includes(st.catalogId) && !s.player.queue.some(a => a.kind === 'film_creative')) {
-      const def = market.getProduct(st.catalogId)
-      const i = st.creatives.length
+    const tired = liveAds(line).filter(a => tiredness(a.id) >= 1)
+    const live = liveAds(line).length
+    // copycat wave answered with "Out-create them": ship 2 new creatives this week
+    const wave = s.events.active.find(e => e.kind === 'competitor_copy' && e.data?.catalogId === line.catalogId && e.data?.response === 'refresh' && d - e.startDay <= 7)
+    const owed = wave ? 2 - s.creatives.creatives.filter(c => c.catalogId === line.catalogId && c.orderedHour >= wave.startDay * 24 && c.status !== 'failed').length : 0
+    const needFresh = (tired.length > 0 && live <= 5) || live < 2 || owed > 0
+    const inFlight = line.pendingRefresh.filter(id => s.creatives.creatives.find(c => c.id === id)?.status === 'in_production' || s.creatives.creatives.find(c => c.id === id)?.status === 'waiting_sample').length + line.swaps.length
+    if (needFresh && (inFlight === 0 || (owed > 0 && inFlight < 2)) && s.catalog.samplesOwned.includes(line.catalogId) && !s.player.queue.some(a => a.kind === 'film_creative')) {
+      const def = market.getProduct(line.catalogId)
+      const i = line.creatives.length
       // rotate hooks/formats that competitors prove work, and new angles
-      const hook = st.hooks[i % st.hooks.length]
+      const hook = line.hooks[i % line.hooks.length]
       const angles = NICHE_ANGLES[def.niche]
-      const fmt = st.formats[(i + 1) % st.formats.length]
+      const fmt = line.formats[(i + 1) % line.formats.length]
       const id = ads.orderCreative(s, {
-        catalogId: st.catalogId, name: '', format: FORMATS[fmt].producers.includes('self') ? fmt : 'demo_video', hook, angle: angles[(i + 1) % angles.length],
+        catalogId: line.catalogId, name: '', format: FORMATS[fmt].producers.includes('self') ? fmt : 'demo_video', hook, angle: angles[(i + 1) % angles.length],
         beats: beatsForHook(hook), hookText: market.hookTextFor(def, hook, i + 7), script: scriptFor(def), producer: 'self',
       })
-      if (id) { st.creatives.push(id); st.pendingRefresh.push(id); st.refreshes++ }
+      if (id) { line.creatives.push(id); line.pendingRefresh.push(id); line.refreshes++ }
     }
-    // 4) budget sanity if the account can't bill: pay the ad balance
-    for (const acc of s.ads.accounts) if (acc.status === 'payment_failed') ads.payAdBalance(s, acc.id)
   }
 
   /** Put finished creatives on the page gallery (demo video + UGC photos), like the editor's "your content" picker. */
-  function syncMedia() {
-    const sp = s.store.products.find(p => p.id === st.spId)
+  function syncMedia(line: Line) {
+    const sp = s.store.products.find(p => p.id === line.spId)
     if (!sp) return
-    const ready = s.creatives.creatives.filter(c => c.catalogId === st.catalogId && c.status === 'ready')
-    if (ready.length <= st.mediaSynced) return
-    st.mediaSynced = ready.length
+    const ready = s.creatives.creatives.filter(c => c.catalogId === line.catalogId && c.status === 'ready')
+    if (ready.length <= line.mediaSynced) return
+    line.mediaSynced = ready.length
     const own = ready.slice(0, 3).map((c, i) => ({ id: `m_cr_${c.id}`, kind: (c.isVideo && i === 0 ? 'video' : i === 1 ? 'ugc_photo' : 'lifestyle') as 'video' | 'ugc_photo' | 'lifestyle', src: c.thumb, alt: c.name }))
     const supplier = sp.media.filter(m => m.kind === 'supplier').slice(0, 8 - own.length)
     store.updateProduct(s, sp.id, { media: [...supplier, ...own] })
@@ -652,7 +883,16 @@ function makeNovice(seed: number): Bot {
   const s = createNewGame({ playerName: 'Riley Rookie', difficulty: DIFFICULTY, seed })
   const rnd = mulberry32(seed ^ 0x5eed)
   const pickOne = <T,>(arr: readonly T[]): T => arr[Math.floor(rnd() * arr.length)]
-  const st = { spId: '', catalogId: '', creativeId: '', campaignId: '', doubled: 0, launched: -1 }
+  const st = { spId: '', catalogId: '', creativeId: '', campaignId: '', adSetId: '', adId: '', doubled: 0, launched: -1, rereviewed: false, remade: 0 }
+  const HOOKS = ['problem_callout', 'pov', 'tiktak_made_me_buy', 'before_after', 'asmr', 'shock_stat', 'unboxing', 'us_vs_them', 'testimonial', 'gift_idea', 'life_hack', 'controversial', 'question'] as HookId[]
+  const ANGLES = ['pain_point', 'convenience', 'gift', 'social_proof', 'savings', 'aspirational', 'curiosity', 'health', 'time_saving', 'pet_love', 'parenting', 'self_care'] as AngleId[]
+  function orderSupplierEdit(name: string): string {
+    const def = market.getProduct(st.catalogId)
+    return ads.orderCreative(s, {
+      catalogId: st.catalogId, name, format: pickOne(SUPPLIER_EDIT_FORMATS), hook: pickOne(HOOKS), angle: pickOne(ANGLES), beats: ['hook', 'benefits', 'cta'],
+      hookText: `HOT SALE ${def.name.toUpperCase()} 🔥🔥`, script: '', producer: 'supplier_edit',
+    }) ?? ''
+  }
   const bot: Bot = {
     name: 'NOVICE',
     s,
@@ -662,32 +902,51 @@ function makeNovice(seed: number): Bot {
     setup() {
       store.createStore(s, { name: 'Trendy Deals Hub' })
       store.installApp(s, 'dserz') // the AliExprez "Add to Shopifly (DSerz)" button
-      st.catalogId = pickOne(s.catalog.available)
+      if (NOVICE_PIXEL) store.installApp(s, 'fadbook-channel') // Shopifly home setup guide: "Add Fadbook & Instaglam"
+      if (NOVICE_POPULAR) {
+        // what a beginner sees first: the Bestsellers row, i.e. a pick weighted by public 30-day orders
+        const w = s.catalog.available.map(id => market.publicListing(s, id)?.orders30d ?? 0)
+        let r = rnd() * w.reduce((a, b) => a + b, 0)
+        st.catalogId = s.catalog.available.find((_, i) => (r -= w[i]) <= 0) ?? pickOne(s.catalog.available)
+      } else st.catalogId = pickOne(s.catalog.available)
       st.spId = store.importProduct(s, st.catalogId)
       store.setProductStatus(s, st.spId, 'active')
       ads.openAdAccount(s, 'fadbook')
       const def = market.getProduct(st.catalogId)
-      const format = pickOne(SUPPLIER_EDIT_FORMATS)
-      const hook = pickOne(['problem_callout', 'pov', 'tiktak_made_me_buy', 'before_after', 'asmr', 'shock_stat', 'unboxing', 'us_vs_them', 'testimonial', 'gift_idea', 'life_hack', 'controversial', 'question'] as HookId[])
-      const angle = pickOne(['pain_point', 'convenience', 'gift', 'social_proof', 'savings', 'aspirational', 'curiosity', 'health', 'time_saving', 'pet_love', 'parenting', 'self_care'] as AngleId[])
-      st.creativeId = ads.orderCreative(s, {
-        catalogId: st.catalogId, name: 'Ad 1', format, hook, angle, beats: ['hook', 'benefits', 'cta'],
-        hookText: `HOT SALE ${def.name.toUpperCase()} 🔥🔥`, script: '', producer: 'supplier_edit',
-      }) ?? ''
+      st.creativeId = orderSupplierEdit('Ad 1')
       const sp = s.store.products.find(p => p.id === st.spId)!
       bot.notes.push(`picked ${def.name} at the default ${usd(sp.price)}, page grade ${sp.grade?.score.toFixed(1)}, break-even ROAS ${store.breakEven(s, st.spId).breakEvenRoas}`)
     },
     hourly() {
-      if (st.campaignId) return
+      const def = market.getProduct(st.catalogId)
+      if (st.campaignId) {
+        // the one ad got rejected: ask for a review once, then make another supplier edit (even a beginner sees the red "Rejected")
+        const ad = s.ads.ads.find(a => a.id === st.adId)
+        if (ad?.review === 'rejected' && ad.status === 'active') {
+          if (!st.rereviewed) { st.rereviewed = true; ads.requestAdReview(s, ad.id) }
+          else if (st.remade < 2 && !s.creatives.creatives.some(c => c.id === st.creativeId && c.status !== 'ready')) {
+            ads.setEntityStatus(s, 'ad', ad.id, 'paused')
+            st.remade++
+            st.rereviewed = false
+            st.creativeId = orderSupplierEdit(`Ad ${st.remade + 1}`)
+            st.adId = ''
+          }
+        }
+        if (!st.adId) {
+          const c = s.creatives.creatives.find(x => x.id === st.creativeId)
+          if (c?.status === 'ready') st.adId = ads.createAd(s, { adSetId: st.adSetId, name: c.name, creativeId: c.id, storeProductId: st.spId, primaryText: `${def.supplierTitle} BUY NOW!!!`, headline: def.name }) ?? ''
+        }
+        return
+      }
       const c = s.creatives.creatives.find(x => x.id === st.creativeId)
       if (!c || c.status !== 'ready') return
-      const def = market.getProduct(st.catalogId)
       const cid = ads.createCampaign(s, { platform: 'fadbook', name: 'Campaign 1', budgetMode: 'cbo', dailyBudget: 50 })
       if (!cid) return
       const set = ads.createAdSet(s, { campaignId: cid, name: 'Ad set 1', targeting: { type: 'broad' } })
       if (!set) return
-      ads.createAd(s, { adSetId: set, name: 'Ad 1', creativeId: c.id, storeProductId: st.spId, primaryText: `${def.supplierTitle} BUY NOW!!!`, headline: def.name })
+      st.adId = ads.createAd(s, { adSetId: set, name: 'Ad 1', creativeId: c.id, storeProductId: st.spId, primaryText: `${def.supplierTitle} BUY NOW!!!`, headline: def.name }) ?? ''
       st.campaignId = cid
+      st.adSetId = set
       st.launched = today(s)
     },
     daily() {
@@ -847,7 +1106,7 @@ function run(bot: Bot) {
       recordDay(bot, d - 1)
       if (process.env.SMOKE_DEBUG === bot.name) debugDay(bot, d - 1)
       if (d >= nextPrint) {
-        console.log(`  [${bot.name.padEnd(9)}] ${periodLine(bot, d - PRINT_EVERY, d - 1)}`)
+        if (!MULTI) console.log(`  [${bot.name.padEnd(9)}] ${periodLine(bot, d - PRINT_EVERY, d - 1)}`)
         nextPrint += PRINT_EVERY
       }
     }
@@ -866,6 +1125,17 @@ function run(bot: Bot) {
 
 function debugDay(bot: Bot, day: number) {
   const s = bot.s
+  if (process.env.SMOKE_PRODUCTS) {
+    // one line per product: revenue, budget, competitors, appeal, fulfillment
+    const a = s.store.analytics.daily[day]
+    const parts = s.store.products.map(sp => {
+      const bp = a?.byProduct?.[sp.id]
+      const camp = s.ads.campaigns.find(c => c.status === 'active' && s.ads.ads.some(ad => ad.campaignId === c.id && ad.storeProductId === sp.id))
+      return `${sp.title.slice(0, 14)} $${Math.round(bp?.sales ?? 0)} b${camp?.dailyBudget ?? '-'} c${s.catalog.market[sp.catalogId]?.competitors} a${market.productAppeal(s, sp.catalogId).toFixed(2)} ${s.catalog.sourcing[sp.catalogId]?.mode ?? 'dropship'}/${s.catalog.inventory[sp.catalogId]?.units ?? 0}`
+    })
+    if (day % 5 === 0) console.log(`    d${day + 1} cash ${Math.round(s.finance.cash)} card ${Math.round(s.finance.card.balance)}/${s.finance.card.limit} reserve ${s.store.hold?.reservePct ?? 0} | ${parts.join(' | ')}`)
+    return
+  }
   const a = s.store.analytics.daily[day]
   const camp = s.ads.campaigns[0]
   const acc = s.ads.accounts[0]
@@ -875,7 +1145,13 @@ function debugDay(bot: Bot, day: number) {
   const trueRev = s.ads.ads.reduce((t, x) => t + (x.stats[day]?.trueRevenue ?? 0), 0)
   const src = Object.entries(a?.ordersBySource ?? {}).map(([k, v]) => `${k}:${v}`).join(' ')
   const ses = Object.entries(a?.sessionsBySource ?? {}).map(([k, v]) => `${k}:${Math.round(v as number)}`).join(' ')
-  console.log(`    d${day + 1} budget ${camp?.dailyBudget ?? '-'} spend ${spend.toFixed(0)} adRev ${trueRev.toFixed(0)} acct ${acc?.status}/${acc ? Math.round(acc.quality) : '-'} learn ${set?.learning.state ?? '-'} live ${liveAds.map(x => `${x.review}${x.frequency ? ':' + x.frequency.toFixed(1) : ''}`).join(',')} | orders ${a?.orders ?? 0} [${src}] sess [${ses}] | cash ${s.finance.cash.toFixed(0)} card ${s.finance.card.balance.toFixed(0)}/${s.finance.card.limit} act ${s.player.activity?.kind ?? '-'} q${s.player.queue.length}`)
+  const cat = s.store.products[0]?.catalogId ?? ''
+  const mk = s.catalog.market[cat]
+  const adsTxt = liveAds.map(x => {
+    const st = x.stats[day]
+    return `${x.review === 'approved' ? '' : x.review + ':'}f${x.frequency?.toFixed(1) ?? '-'}/ctr${st && st.impressions ? (100 * st.linkClicks / st.impressions).toFixed(2) : '-'}/$${st ? st.spend.toFixed(0) : 0}`
+  }).join(',')
+  console.log(`    d${day + 1} budget ${camp?.dailyBudget ?? '-'} spend ${spend.toFixed(0)} adRev ${trueRev.toFixed(0)} acct ${acc?.status}/${acc ? Math.round(acc.quality) : '-'} learn ${set?.learning.state ?? '-'} live ${adsTxt} | orders ${a?.orders ?? 0} [${src}] sess [${ses}] | cash ${s.finance.cash.toFixed(0)} card ${s.finance.card.balance.toFixed(0)}/${s.finance.card.limit} appeal ${market.productAppeal(s, cat).toFixed(2)} comp ${mk?.competitors ?? '-'} hold ${s.store.hold?.reservePct ?? 0} act ${s.player.activity?.kind ?? '-'} q${s.player.queue.length}`)
 }
 
 /** Where the money went (diagnostic): P&L totals vs. the balance-sheet change. */
@@ -936,9 +1212,169 @@ function finalStats(bot: Bot) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Multi-seed metrics (SPEC §10 balance targets)
+// ---------------------------------------------------------------------------
+interface RunMetrics {
+  seed: number
+  // novice
+  nRoas90: number; nRoas: number; nLost90: boolean; nLost: boolean; nCtr: number; nCpc: number; nCvr: number; nPrice: number; nArch: string; nSpend: number
+  /** novice paid funnel (ad-attributed truth, days 1-90): CPM, LPV → purchase CVR, AOV, ad-only ROAS, spend */
+  nCpm: number; nPaidCvr: number; nAov: number; nAdRoas90: number; nSpend90: number
+  // competent
+  cProfit45: number; cProfit60: number; cProfit90: number; cProfit: number
+  cRev90: number; cRev120: number; cRev150: number; cRevPeak: number; cProfitDay90: number
+  cRoas: number; cNw: number; cFreq90: number; cFreqMax: number; cFreqAt1k: number; cFreqTop500: number; cBanP: number; cBans: number; cArch: string; cName: string; cPrice: number
+}
+
+const sumRows = (rows: DayRow[], k: keyof DayRow, from: number, to: number) =>
+  rows.filter(r => r.day >= from && r.day <= to).reduce((a, r) => a + (r[k] as number), 0)
+/** 7-day average of a row field ending at `day` (inclusive). */
+const avg7 = (rows: DayRow[], k: keyof DayRow, day: number) => sumRows(rows, k, day - 6, day) / 7
+
+function runMetrics(seed: number, comp: Bot, nov: Bot): RunMetrics {
+  const c = comp.rows, n = nov.rows
+  const last = DAYS - 1
+  const d90 = Math.min(89, last)
+  const nSpend90 = sumRows(n, 'spend', 0, d90), nSpend = sumRows(n, 'spend', 0, last)
+  const nClicks = sumRows(n, 'linkClicks', 0, last), nImps = sumRows(n, 'impressions', 0, last)
+  const nSessions = sumRows(n, 'sessions', 0, last), nOrders = sumRows(n, 'orders', 0, last)
+  const nsp = nov.s.store.products[0], csp = comp.s.store.products[0]
+  const nd = nsp ? market.findProduct(nsp.catalogId) : undefined
+  const cd = csp ? market.findProduct(csp.catalogId) : undefined
+  let peak = 0
+  for (let d = 6; d <= last; d++) peak = Math.max(peak, avg7(c, 'revenue', d))
+  // frequency of the top ad on days it spent real money ($100+/day)
+  const scaled = c.filter(r => r.topSpend >= 100)
+  let keep = 1
+  for (const r of c) keep *= 1 - r.banHazard
+  return {
+    seed,
+    nRoas90: nSpend90 > 0 ? sumRows(n, 'revenue', 0, d90) / nSpend90 : 0,
+    nRoas: nSpend > 0 ? sumRows(n, 'revenue', 0, last) / nSpend : 0,
+    nLost90: sumRows(n, 'profit', 0, d90) < 0,
+    nLost: sumRows(n, 'profit', 0, last) < 0,
+    nCtr: nImps > 0 ? nClicks / nImps : 0,
+    nCpc: nClicks > 0 ? nSpend / nClicks : 0,
+    nCvr: nSessions > 0 ? nOrders / nSessions : 0,
+    nPrice: nsp?.price ?? 0,
+    nArch: nd?.archetype ?? '-',
+    nSpend,
+    nCpm: sumRows(n, 'impressions', 0, d90) > 0 ? (1000 * nSpend90) / sumRows(n, 'impressions', 0, d90) : 0,
+    nPaidCvr: sumRows(n, 'lpv', 0, d90) > 0 ? sumRows(n, 'adPurchases', 0, d90) / sumRows(n, 'lpv', 0, d90) : 0,
+    nAov: sumRows(n, 'adPurchases', 0, d90) > 0 ? sumRows(n, 'adRevenue', 0, d90) / sumRows(n, 'adPurchases', 0, d90) : 0,
+    nAdRoas90: nSpend90 > 0 ? sumRows(n, 'adRevenue', 0, d90) / nSpend90 : 0,
+    nSpend90,
+    cProfit45: sumRows(c, 'profit', 0, Math.min(44, last)),
+    cProfit60: sumRows(c, 'profit', 0, Math.min(59, last)),
+    cProfit90: sumRows(c, 'profit', 0, d90),
+    cProfit: sumRows(c, 'profit', 0, last),
+    cRev90: avg7(c, 'revenue', d90),
+    cRev120: avg7(c, 'revenue', Math.min(119, last)),
+    cRev150: avg7(c, 'revenue', last),
+    cRevPeak: peak,
+    cProfitDay90: avg7(c, 'profit', d90),
+    cRoas: (() => { const sp = sumRows(c, 'spend', 0, last); return sp > 0 ? sumRows(c, 'revenue', 0, last) / sp : 0 })(),
+    cNw: netWorth(comp.s),
+    cFreq90: c.find(r => r.day === d90)?.topFreq ?? 0,
+    cFreqMax: Math.max(0, ...scaled.map(r => r.topFreq)),
+    cFreqAt1k: quantile(c.filter(r => r.spend >= 1000).map(r => r.topFreq), 0.5),
+    cFreqTop500: quantile(c.filter(r => r.topSpend >= 500).map(r => r.topFreq), 0.5),
+    cBanP: 1 - keep,
+    cBans: Object.values(comp.s.ads.bans ?? {}).reduce((a, x) => a + (x ?? 0), 0),
+    cArch: cd?.archetype ?? '-',
+    cName: cd?.name ?? '-',
+    cPrice: csp?.price ?? 0,
+  }
+}
+
+function quantile(xs: number[], q: number): number {
+  if (!xs.length) return 0
+  const v = [...xs].sort((a, b) => a - b)
+  const i = (v.length - 1) * q
+  const lo = Math.floor(i), hi = Math.ceil(i)
+  return v[lo] + (v[hi] - v[lo]) * (i - lo)
+}
+const share = (xs: boolean[]) => (xs.length ? `${Math.round((100 * xs.filter(Boolean).length) / xs.length)}%` : '-')
+function spread(xs: number[], f: (x: number) => string) {
+  return `${f(quantile(xs, 0.5))} [${f(quantile(xs, 0.1))} – ${f(quantile(xs, 0.9))}]`
+}
+
+function summaryTable(diff: Difficulty, runs: RunMetrics[]) {
+  const col = <K extends keyof RunMetrics>(k: K) => runs.map(r => r[k])
+  const num = (k: keyof RunMetrics) => col(k) as number[]
+  const f2 = (x: number) => x.toFixed(2)
+  const lines: [string, string, string][] = [
+    ['NOVICE ROAS, days 1-90 (Shopifly ÷ spend)', spread(num('nRoas90'), f2), '0.4-1.0 (task: 0.3-0.9)'],
+    [`NOVICE ROAS, days 1-${DAYS}`, spread(num('nRoas'), f2), ''],
+    ['NOVICE lost money by day 90', share(col('nLost90')), '>= 85%'],
+    [`NOVICE lost money by day ${DAYS}`, share(col('nLost')), ''],
+    ['NOVICE link CTR / CPC', `${spread(num('nCtr'), x => pct(x))} / ${spread(num('nCpc'), x => `$${x.toFixed(2)}`)}`, '0.5-0.8% / $1.5-3'],
+    ['NOVICE store CVR (all sessions)', spread(num('nCvr'), x => pct(x)), ''],
+    ['NOVICE CPM / paid CVR (LPV → buy), d1-90', `${spread(num('nCpm'), x => `$${x.toFixed(1)}`)} / ${spread(num('nPaidCvr'), x => pct(x))}`, '$12-20 / 0.6-1.5% (bad store)'],
+    ['NOVICE ad-only ROAS / AOV, d1-90', `${spread(num('nAdRoas90'), f2)} / ${spread(num('nAov'), usd)}`, ''],
+    ['NOVICE ad spend, days 1-90', spread(num('nSpend90'), usd), ''],
+    ['NOVICE price', spread(num('nPrice'), x => usd(x)), ''],
+    ['COMPETENT profitable by day 45 (cum.)', share(runs.map(r => r.cProfit45 > 0)), '>= 70% (Normal)'],
+    ['COMPETENT profitable by day 60 (cum.)', share(runs.map(r => r.cProfit60 > 0)), ''],
+    [`COMPETENT profitable by day ${DAYS} (cum.)`, share(runs.map(r => r.cProfit > 0)), '>= 60% (Realistic)'],
+    ['COMPETENT revenue/day @ day 90 (7d avg)', spread(num('cRev90'), usd), '$500-2,000 (task: $1-3k)'],
+    ['COMPETENT revenue/day @ day 120', spread(num('cRev120'), usd), ''],
+    [`COMPETENT revenue/day @ day ${DAYS}`, spread(num('cRev150'), usd), 'higher by months 4-6'],
+    ['COMPETENT peak 7d revenue/day', spread(num('cRevPeak'), usd), ''],
+    ['COMPETENT profit/day @ day 90', spread(num('cProfitDay90'), usd), ''],
+    [`COMPETENT business profit, ${DAYS} days`, spread(num('cProfit'), usd), ''],
+    ['COMPETENT ROAS (Shopifly ÷ spend)', spread(num('cRoas'), f2), ''],
+    [`COMPETENT net worth @ day ${DAYS}`, spread(num('cNw'), usd), ''],
+    ['COMPETENT top-ad 7d freq @ day 90', spread(num('cFreq90'), f2), ''],
+    ['COMPETENT top-ad 7d freq, days spend ≥ $1k', spread(num('cFreqAt1k'), f2), '~1.8-3 at $1-5k/day'],
+    ['COMPETENT top-ad 7d freq, that ad ≥ $500/day', spread(num('cFreqTop500'), f2), ''],
+    ['COMPETENT max top-ad 7d freq ($100+/day)', spread(num('cFreqMax'), f2), 'frequency > 3 rule reachable'],
+    [`COMPETENT P(restricted) over ${DAYS}d, model`, `${spread(num('cBanP'), x => pct(x, 1))}`, '3-5% clean (Normal)'],
+    ['COMPETENT accounts actually banned', `${share(runs.map(r => r.cBans > 0))} of runs`, ''],
+  ]
+  console.log(`\n=== ${diff.toUpperCase()} — ${runs.length} seeds (${runs[0]?.seed}…${runs[runs.length - 1]?.seed}), ${DAYS} days${PICK ? `, pick ${PICK}` : ''}${AOV !== 'auto' ? `, aov ${AOV}` : ''} ===`)
+  console.log(`  ${'metric'.padEnd(44)}${'median [p10 – p90] / share'.padEnd(40)}target`)
+  for (const [a, b, t] of lines) console.log(`  ${a.padEnd(44)}${b.padEnd(40)}${t}`)
+  const byArch = new Map<string, number[]>()
+  for (const r of runs) byArch.set(r.nArch, [...(byArch.get(r.nArch) ?? []), r.nRoas90])
+  if (ONLY !== 'competent') console.log(`  novice ROAS d1-90 by product archetype (median, n): ${[...byArch].sort((a, b) => quantile(b[1], 0.5) - quantile(a[1], 0.5)).map(([k, v]) => `${k} ${quantile(v, 0.5).toFixed(2)} (${v.length})`).join(', ')}`)
+  const arch = new Map<string, number>()
+  for (const r of runs) arch.set(r.cArch, (arch.get(r.cArch) ?? 0) + 1)
+  console.log(`  competent picks by archetype: ${[...arch].map(([k, v]) => `${k} ${v}`).join(', ')}`)
+}
+
+function runLine(r: RunMetrics): string {
+  return `  seed ${String(r.seed).padStart(9)} | NOV ${r.nArch.padEnd(10)} ${usd(r.nPrice).padStart(4)} ROAS ${r.nRoas90.toFixed(2)} CTR ${pct(r.nCtr)} CPC $${r.nCpc.toFixed(2)} CPM $${r.nCpm.toFixed(0)} paidCVR ${pct(r.nPaidCvr)} adROAS ${r.nAdRoas90.toFixed(2)} spent ${usd(r.nSpend90)} profit? ${r.nLost ? 'lost' : 'WON '}`
+    + ` | COMP ${r.cName.slice(0, 22).padEnd(22)} ${usd(r.cPrice).padStart(4)} p45 ${usd(r.cProfit45).padStart(7)} rev/d90 ${usd(r.cRev90).padStart(6)} d150 ${usd(r.cRev150).padStart(6)} profit ${usd(r.cProfit).padStart(8)} ROAS ${r.cRoas.toFixed(2)} f90 ${r.cFreq90.toFixed(2)} fmax ${r.cFreqMax.toFixed(2)} ban ${pct(r.cBanP, 1)}${r.cBans ? ` BANNED×${r.cBans}` : ''}`
+}
+
+function multiMain() {
+  console.log(`Dropship Tycoon balance sweep — ${SEEDS!.length} seeds × ${DIFFICULTIES.join('/')}, ${DAYS} days\n`)
+  const t0 = Date.now()
+  const all: [Difficulty, RunMetrics[]][] = []
+  for (const diff of DIFFICULTIES) {
+    DIFFICULTY = diff
+    const runs: RunMetrics[] = []
+    for (const seed of SEEDS!) {
+      const comp = makeCompetent(seed)
+      const nov = makeNovice(seed)
+      if (ONLY !== 'novice') run(comp)
+      if (ONLY !== 'competent') run(nov)
+      const m = runMetrics(seed, comp, nov)
+      runs.push(m)
+      if (SHOW_RUNS) console.log(`${diff.slice(0, 4)}${runLine(m)}`)
+    }
+    all.push([diff, runs])
+  }
+  for (const [diff, runs] of all) summaryTable(diff, runs)
+  console.log(`\n  wall time ${((Date.now() - t0) / 1000).toFixed(0)}s`)
+}
+
 function main() {
-  console.log(`Dropship Tycoon smoke test — seed ${SEED}, ${DAYS} days, ${DIFFICULTY[0].toUpperCase()}${DIFFICULTY.slice(1)}\n`)
-  const bots = [makeCompetent(SEED), makeNovice(SEED)]
+  console.log(`Dropship Tycoon smoke test — seed ${SEEDS?.[0] ?? SEED}, ${DAYS} days, ${DIFFICULTY[0].toUpperCase()}${DIFFICULTY.slice(1)}\n`)
+  const seed = SEEDS?.[0] ?? SEED
+  const bots = [makeCompetent(seed), makeNovice(seed)]
   const times: number[] = []
   for (const bot of bots) {
     console.log(`${bot.name}`)
@@ -984,4 +1420,5 @@ function main() {
   console.log(`  verdict: ${verdict} by ${usd(Math.abs(a.netWorth - b.netWorth))} net worth`)
 }
 
-main()
+if (MULTI) multiMain()
+else main()

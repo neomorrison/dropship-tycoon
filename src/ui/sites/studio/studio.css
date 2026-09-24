@@ -40,7 +40,9 @@
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
 }
-.ch-root button { font: inherit; color: inherit; }
+/* font resets at element specificity; color only via :where() so .ch-btn-primary/danger keep their white text */
+.ch-root button { font: inherit; }
+.ch-root :where(button) { color: inherit; }
 .ch-root h1, .ch-root h3, .ch-root h4, .ch-root p { margin: 0; }
 .ch-root :focus-visible { outline: none; box-shadow: var(--ch-focus); }
 

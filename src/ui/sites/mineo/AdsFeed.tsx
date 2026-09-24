@@ -10,7 +10,7 @@ import { NICHE_LABEL } from './labels'
 
 type SortKey = 'trending' | 'likes' | 'shares' | 'newest' | 'longest'
 const SORTS: { id: SortKey; label: string }[] = [
-  { id: 'trending', label: 'Trending (engagement / day)' },
+  { id: 'trending', label: 'Trending' },
   { id: 'likes', label: 'Most likes' },
   { id: 'shares', label: 'Most shares' },
   { id: 'newest', label: 'Newest first' },

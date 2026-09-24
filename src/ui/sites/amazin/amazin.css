@@ -24,7 +24,7 @@
   font-size: 14px;
   line-height: 1.4;
 }
-.az-root button, .az-layer button { font: inherit; }
+:where(.az-root, .az-layer) button { font: inherit; }
 
 /* top */
 .az-top { display: flex; align-items: center; gap: 8px; height: 60px; padding: 0 10px; background: var(--az-navy); color: #fff; }
@@ -214,6 +214,7 @@
   .az-cart { margin-left: auto; }
   .az-cart b { display: none; }
   .az-subnav-promo { display: none; }
+  .az-subnav { padding-right: 28px; mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); }
   .az-hero { padding: 22px 14px 70px; }
   .az-hero h1 { font-size: 22px; }
   .az-tiles { padding: 0 8px; gap: 10px; }

@@ -4,16 +4,16 @@ import { useMemo, useState } from 'react'
 import { Gift, Layers, Percent, Truck } from 'lucide-react'
 import type { ShopiflyPageProps } from '../route'
 import type { Discount } from '../../../../core/types'
-import { act, useGS } from '../../../../core/store'
+import { act, getGS, useGS } from '../../../../core/store'
 import { usePauseWhileMounted } from '../../../../core/ui'
 import { money } from '../../../../core/format'
 import { formatDate } from '../../../../core/time'
 import { deleteDiscount, upsertDiscount } from '../../../../sim/store'
 import {
-  Badge, Banner, BlockStack, Card, ChoiceList, ContextualSaveBar, EmptyState, Icon, IndexFilters, IndexTable, InlineStack, Layout, Modal, Page,
+  Badge, Banner, BlockStack, Card, ChoiceList, EmptyState, Icon, IndexFilters, IndexTable, InlineStack, Layout, Modal, Page,
   Select, Text, TextField, type IndexTableColumn,
 } from '../../../kit/polaris'
-import { useFlash } from '../merch/shared'
+import { AdminSaveBar, useFlash, useLeaveGuard } from '../merch/shared'
 import '../merch/merch.css'
 
 type Kind = Discount['kind']
@@ -21,6 +21,8 @@ const TYPE_LABEL: Record<Kind, string> = {
   percent: 'Amount off products', fixed: 'Amount off order', free_shipping: 'Free shipping', bxgy: 'Buy X get Y', quantity_break: 'Quantity discount',
 }
 const AUTO_ONLY: Kind[] = ['bxgy', 'quantity_break']
+/** What the merchant named it: the title of an automatic discount, else the code. */
+export const discountName = (d: Pick<Discount, 'code' | 'title' | 'automatic'>) => (d.automatic && d.title?.trim()) || d.code
 
 export function discountSummary(d: Pick<Discount, 'kind' | 'value'>): string {
   switch (d.kind) {
@@ -54,11 +56,12 @@ function DiscountList({ navigate }: { navigate: (p: string) => void }) {
   const [query, setQuery] = useState('')
   const [sel, setSel] = useState<string[]>([])
   const [picker, setPicker] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState<string[] | null>(null)
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase()
     return discounts
       .filter(d => view === 0 || (view === 1 ? d.active : !d.active))
-      .filter(d => !q || d.code.toLowerCase().includes(q) || TYPE_LABEL[d.kind].toLowerCase().includes(q))
+      .filter(d => !q || discountName(d).toLowerCase().includes(q) || d.code.toLowerCase().includes(q) || TYPE_LABEL[d.kind].toLowerCase().includes(q))
       .slice()
       .reverse()
   }, [discounts, view, query])
@@ -68,10 +71,10 @@ function DiscountList({ navigate }: { navigate: (p: string) => void }) {
   }
   const columns: IndexTableColumn<Discount>[] = [
     {
-      id: 'title', title: 'Title', minWidth: 220, sortValue: d => d.code,
+      id: 'title', title: 'Title', minWidth: 220, sortValue: d => discountName(d).toLowerCase(),
       render: d => (
         <BlockStack gap="050">
-          <Text as="span" fontWeight="semibold">{d.code}</Text>
+          <Text as="span" fontWeight="semibold">{discountName(d)}</Text>
           <Text as="span" tone="subdued" variant="bodySm">{discountSummary(d)}</Text>
         </BlockStack>
       ),
@@ -114,13 +117,32 @@ function DiscountList({ navigate }: { navigate: (p: string) => void }) {
                 onSelectionChange={setSel}
                 onRowClick={d => navigate(`discounts/${d.id}`)}
                 promotedBulkActions={[{ content: 'Activate', onAction: setActive(true) }, { content: 'Deactivate', onAction: setActive(false) }]}
-                bulkActions={[{ content: 'Delete discounts', destructive: true, onAction: ids => { act(s => { for (const id of ids) deleteDiscount(s, id) }); setSel([]) } }]}
+                bulkActions={[{ content: 'Delete discounts', destructive: true, onAction: ids => setConfirmDelete(ids) }]}
                 emptyState={<EmptyState heading="No discounts found" image="search" compact />}
               />
             </Card>
           )}
         </BlockStack>
       </Page>
+      <Modal
+        open={!!confirmDelete}
+        onClose={() => setConfirmDelete(null)}
+        title={`Delete ${confirmDelete?.length ?? 0} discount${confirmDelete?.length === 1 ? '' : 's'}?`}
+        size="small"
+        primaryAction={{
+          content: 'Delete',
+          destructive: true,
+          onAction: () => {
+            const ids = confirmDelete ?? []
+            act(s => { for (const id of ids) deleteDiscount(s, id) })
+            setSel([])
+            setConfirmDelete(null)
+          },
+        }}
+        secondaryActions={[{ content: 'Cancel', onAction: () => setConfirmDelete(null) }]}
+      >
+        <Modal.Section><Text as="p">This can&apos;t be undone. Customers won&apos;t be able to use these codes any more.</Text></Modal.Section>
+      </Modal>
       <Modal open={picker} onClose={() => setPicker(false)} title="Select discount type" secondaryActions={[{ content: 'Cancel', onAction: () => setPicker(false) }]}>
         <Modal.Section flush>
           <div className="sf-mx-typelist">
@@ -140,6 +162,9 @@ function DiscountList({ navigate }: { navigate: (p: string) => void }) {
   )
 }
 
+/** Codes are stored upper-case without spaces or symbols (see upsertDiscount); show that while typing. */
+const cleanCode = (v: string) => v.toUpperCase().replace(/\s+/g, '-').replace(/[^A-Z0-9_-]/g, '').slice(0, 24)
+
 const randomCode = () => {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
   return Array.from({ length: 10 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
@@ -152,7 +177,7 @@ function DiscountForm({ id, kind: initialKind, navigate }: { id?: string; kind?:
   const kindInit: Kind = existing?.kind ?? initialKind ?? 'percent'
   const init = {
     kind: kindInit,
-    code: existing?.code ?? '',
+    code: existing ? (existing.automatic ? discountName(existing) : existing.code) : '',
     automatic: existing?.automatic ?? AUTO_ONLY.includes(kindInit),
     value: existing ? String(existing.value) : kindInit === 'fixed' ? '5' : kindInit === 'quantity_break' ? '10' : '15',
     active: existing?.active ?? true,
@@ -161,10 +186,11 @@ function DiscountForm({ id, kind: initialKind, navigate }: { id?: string; kind?:
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [flash, showFlash] = useFlash()
   const dirty = !existing || JSON.stringify(f) !== JSON.stringify(init)
+  const { guard, modal: leaveModal } = useLeaveGuard(dirty)
   const needsValue = f.kind === 'percent' || f.kind === 'fixed' || f.kind === 'quantity_break'
   const value = Number(f.value)
   const valueErr = needsValue && !(value > 0) ? 'Enter a value greater than 0' : f.kind !== 'fixed' && needsValue && value > 90 ? 'Maximum is 90%' : undefined
-  const codeErr = !f.automatic && !f.code.trim() ? 'Enter a discount code' : undefined
+  const codeErr = !f.automatic && !cleanCode(f.code) ? 'Enter a discount code' : undefined
 
   if (id && !existing) {
     return (
@@ -179,9 +205,12 @@ function DiscountForm({ id, kind: initialKind, navigate }: { id?: string; kind?:
       showFlash(valueErr ?? codeErr ?? 'Check the form', 'critical')
       return
     }
+    // automatic discounts keep the merchant's free-text title; the code stays a normalized id
+    const autoTitle = f.automatic ? f.code.trim().replace(/\s+/g, ' ').slice(0, 60) || TYPE_LABEL[f.kind] : undefined
     const d: Discount = {
       id: existing?.id ?? '',
-      code: f.code.trim() || (f.automatic ? TYPE_LABEL[f.kind].toUpperCase().replace(/\s+/g, '-') : ''),
+      code: cleanCode(f.automatic ? autoTitle ?? '' : f.code) || (f.automatic ? cleanCode(TYPE_LABEL[f.kind]) : ''),
+      title: autoTitle,
       kind: f.kind,
       value: needsValue ? value : 0,
       automatic: f.automatic,
@@ -196,20 +225,26 @@ function DiscountForm({ id, kind: initialKind, navigate }: { id?: string; kind?:
       newId = existing?.id ?? s.store.discounts.find(x => !before.has(x.id))?.id ?? ''
     })
     if (!existing && newId) navigate(`discounts/${newId}`)
-    else showFlash('Discount saved')
+    else {
+      // show what was stored (codes are normalized, percentages rounded) so the form is clean again
+      const saved = newId ? getGS().store.discounts.find(x => x.id === newId) : undefined
+      if (saved) setF({ kind: saved.kind, code: saved.automatic ? discountName(saved) : saved.code, automatic: saved.automatic, value: String(saved.value), active: saved.active })
+      showFlash('Discount saved')
+    }
   }
 
-  const title = existing ? existing.code : TYPE_LABEL[f.kind]
+  const title = existing ? discountName(existing) : TYPE_LABEL[f.kind]
   return (
     <div className="sf-mx-page">
-      <ContextualSaveBar
+      <AdminSaveBar
         visible={dirty}
         message={existing ? 'Unsaved changes' : 'Unsaved discount'}
         saveAction={{ onAction: save, content: 'Save' }}
         discardAction={{ onAction: () => (existing ? setF(init) : navigate('discounts')), content: 'Discard' }}
       />
+      {leaveModal}
       <Page
-        backAction={{ content: 'Discounts', onAction: () => navigate('discounts') }}
+        backAction={{ content: 'Discounts', onAction: () => guard(() => navigate('discounts')) }}
         title={existing ? title : `Create ${TYPE_LABEL[f.kind].toLowerCase()}`}
         titleMetadata={existing ? (existing.active ? <Badge tone="success">Active</Badge> : <Badge>Deactivated</Badge>) : undefined}
         secondaryActions={existing ? [
@@ -229,20 +264,21 @@ function DiscountForm({ id, kind: initialKind, navigate }: { id?: string; kind?:
                       { label: 'Automatic discount', value: 'auto' },
                     ]}
                     selected={[f.automatic ? 'auto' : 'code']}
-                    onChange={([v]) => setF(x => ({ ...x, automatic: v === 'auto' }))}
+                    onChange={([v]) => setF(x => ({ ...x, automatic: v === 'auto', code: v === 'auto' ? x.code : cleanCode(x.code) }))}
                   />
                   {AUTO_ONLY.includes(f.kind) && <Text as="p" tone="subdued" variant="bodySm">This discount type applies automatically at checkout.</Text>}
                   {f.automatic ? (
-                    <TextField label="Title" value={f.code} onChange={code => setF(x => ({ ...x, code }))} helpText="Customers see this in their cart and at checkout." placeholder="SPRING SALE" />
+                    <TextField label="Title" value={f.code} onChange={code => setF(x => ({ ...x, code }))} helpText="Customers see this in their cart and at checkout." placeholder="Spring sale" maxLength={60} />
                   ) : (
                     <TextField
                       label="Discount code"
                       value={f.code}
-                      onChange={code => setF(x => ({ ...x, code: code.toUpperCase() }))}
+                      onChange={code => setF(x => ({ ...x, code: cleanCode(code.replace(/\s+/g, '')) }))}
                       labelAction={{ content: 'Generate random code', onAction: () => setF(x => ({ ...x, code: randomCode() })) }}
                       helpText="Customers must enter this code at checkout."
                       error={codeErr && f.code !== '' ? codeErr : undefined}
                       monospaced
+                      maxLength={24}
                     />
                   )}
                 </BlockStack>
@@ -321,7 +357,7 @@ function DiscountForm({ id, kind: initialKind, navigate }: { id?: string; kind?:
       <Modal
         open={confirmDelete}
         onClose={() => setConfirmDelete(false)}
-        title={`Delete ${existing?.code ?? 'discount'}?`}
+        title={`Delete ${existing ? discountName(existing) : 'discount'}?`}
         size="small"
         primaryAction={{ content: 'Delete', destructive: true, onAction: () => { if (existing) act(s => deleteDiscount(s, existing.id)); setConfirmDelete(false); navigate('discounts') } }}
         secondaryActions={[{ content: 'Cancel', onAction: () => setConfirmDelete(false) }]}

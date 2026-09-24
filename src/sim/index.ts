@@ -47,7 +47,17 @@ function dayRollover(s: GameState, day: number): void {
 function snapshot(s: GameState, day: number): void {
   if (day < 0) return
   const p = pnlFor(s, day)
-  const adSpend = p.adSpendFadbook + p.adSpendTiktak
+  // the P&L books ad spend when a platform bills the card (threshold / monthly); the day's history
+  // (charts, recap, "profitable day yesterday" mood) uses what the ads actually delivered that day
+  let delivered = 0
+  let anyStats = false
+  for (const ad of s.ads.ads) {
+    const st = ad.stats?.[day]
+    if (!st) continue
+    anyStats = true
+    if (Number.isFinite(st.spend)) delivered += st.spend
+  }
+  const adSpend = anyStats ? delivered : p.adSpendFadbook + p.adSpendTiktak
   const profit = p.revenue - p.refunds - p.chargebacks - p.cogs - p.shipping - adSpend - p.paymentFees - p.apps - p.creatives - p.staff - p.otherBusiness
   const orders = s.store.analytics.daily[day]?.orders ?? 0
   s.history.push({ day, cash: s.finance.cash, netWorth: netWorth(s), revenue: p.revenue, adSpend, profit, orders })

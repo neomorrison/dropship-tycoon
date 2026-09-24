@@ -157,7 +157,8 @@ export function searchRows(rows: Row[], o: SearchOpts): Row[] {
     x.rel * 4 + Math.log10(x.r.l.orders30d + 10) + (x.r.l.choice ? 0.35 : 0) + (x.r.l.rating - 4.5) + hrand(x.r.p.id, 'bm', o.day) * 0.9
   scored.sort((a, b) => {
     switch (sort) {
-      case 'orders': return b.r.l.orders30d - a.r.l.orders30d
+      // matches the visible "10,000+ sold" label (lifetime), recent orders break ties
+      case 'orders': return (b.r.l.sold ?? b.r.l.orders30d) - (a.r.l.sold ?? a.r.l.orders30d) || b.r.l.orders30d - a.r.l.orders30d
       case 'newest': return b.r.p.releaseDay - a.r.p.releaseDay || b.r.l.orders30d - a.r.l.orders30d
       case 'price_asc': return a.r.l.price - b.r.l.price
       case 'price_desc': return b.r.l.price - a.r.l.price
@@ -169,9 +170,17 @@ export function searchRows(rows: Row[], o: SearchOpts): Row[] {
 
 /** "Pet Hair Remover Roller" — readable short product noun for review text. */
 export function productNoun(p: ProductDef): string {
-  const base = p.name.replace(/\(.*?\)/g, '').replace(/\b(portable|electric|reusable|automatic|cordless|mini|smart|adjustable|handheld|rechargeable|crystal clear|usb)\b/gi, '').replace(/\s+/g, ' ').trim()
+  const base = p.name
+    .replace(/\(.*?\)/g, '')
+    // "Selfie Ring Light with Tripod" → "Selfie Ring Light" (the noun comes before "with/for")
+    .replace(/\s+(with|for)\s+.*$/i, '')
+    .replace(/\b(portable|electric|reusable|automatic|cordless|mini|smart|adjustable|handheld|rechargeable|crystal clear|usb)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
   const words = base.split(' ')
-  return (words.length > 3 ? words.slice(-2) : words).join(' ').toLowerCase()
+  let from = words.length > 4 ? words.length - 4 : 0
+  if (from > 0 && words[from] === '&') from-- // "salt & pepper grinder", not "& pepper grinder"
+  return words.slice(from).join(' ').toLowerCase()
 }
 
 // ---------------------------------------------------------------------------
@@ -236,26 +245,31 @@ export interface GenReview {
   followUp?: string
 }
 
-/** Share of 1–2★ reviews implied by an average rating. */
-export function complaintShareFor(rating: number): number {
-  return Math.max(0.008, Math.min(0.55, (4.86 - rating) * 0.29))
+/**
+ * [1★..5★] shares that average to `rating`, shaped like a real marketplace listing:
+ * mostly 5★, a healthy 4★ bucket that grows as the rating drops, and a 1★ bump
+ * (J-curve) from the buyers whose unit broke or never arrived.
+ */
+export function starDistribution(rating: number): [number, number, number, number, number] {
+  const r = Math.max(1, Math.min(5, rating))
+  // share of the 4–5★ mass that is 4★ (lower-rated listings have more lukewarm 4★ reviews)
+  const k = Math.max(0.06, Math.min(0.3, 0.06 + 0.25 * (4.8 - r)))
+  // L = unhappy mass (1–3★ beyond a 2% baseline of 3★), solved so the average equals the rating
+  const top = 5 - k
+  const L = Math.max(0.004, Math.min(0.75, (0.98 * top + 0.06 - r) / (top - 1.7)))
+  const p1 = 0.55 * L
+  const p2 = 0.2 * L
+  const p3 = 0.25 * L + 0.02
+  const rest = Math.max(0, 1 - p1 - p2 - p3)
+  const dist: [number, number, number, number, number] = [p1, p2, p3, rest * k, rest * (1 - k)]
+  const sum = dist.reduce((a, b) => a + b, 0)
+  return dist.map(x => x / sum) as typeof dist
 }
 
-/** [1★..5★] shares that average to `rating` with the implied complaint share. */
-export function starDistribution(rating: number): [number, number, number, number, number] {
-  const low = complaintShareFor(rating)
-  let p1 = low * 0.62
-  let p2 = low * 0.38
-  let p3 = Math.min(0.2, 0.025 + low * 0.35)
-  const rest = 1 - p1 - p2 - p3
-  // 5p5 + 4p4 = target with p4 + p5 = rest
-  const lowSum = 3 * p3 + 2 * p2 + p1
-  let p5 = rating - lowSum - 4 * rest
-  p5 = Math.max(rest * 0.35, Math.min(rest * 0.97, p5))
-  let p4 = rest - p5
-  const sum = p1 + p2 + p3 + p4 + p5
-  p1 /= sum; p2 /= sum; p3 /= sum; p4 /= sum; p5 /= sum
-  return [p1, p2, p3, p4, p5]
+/** Share of 1–2★ reviews implied by an average rating (same model as the star bars). */
+export function complaintShareFor(rating: number): number {
+  const d = starDistribution(rating)
+  return d[0] + d[1]
 }
 
 const COUNTRIES: [string, number][] = [['US', 44], ['FR', 8], ['ES', 8], ['BR', 7], ['PL', 6], ['KR', 5], ['NL', 4], ['IL', 4], ['DE', 4], ['CL', 3], ['UA', 3], ['UK', 4]]
@@ -304,6 +318,8 @@ const MID = [
   'Does the job. Instructions only in Chinese.',
   'Average quality, you get what you pay for.',
   'Color slightly different from the photo, otherwise fine.',
+  'The {noun} works, but not as well as in the ad.',
+  'Decent, but I expected better finishing for this price.',
 ]
 const NEG_GENERIC = [
   'Arrived broken. Seller asked me to open a dispute.',
@@ -312,8 +328,21 @@ const NEG_GENERIC = [
   'Stopped working after two weeks. Do not buy.',
   'Package took 40 days and the item was damaged.',
   'Doesn\'t work like advertised. Very disappointed.',
+  'The {noun} feels like a toy. Returned it.',
+  'Smaller than expected and flimsy. Not worth it.',
+  'Missing parts in the box, seller stopped answering.',
+  'One star because it broke on day 5. Save your money.',
 ]
-const NEG_POWERED = ['Battery dies after a few uses and won\'t charge anymore.', 'Worked for 3 days then nothing. Charging light doesn\'t turn on.']
+const NEG_POWERED = [
+  'Battery dies after a few uses and won\'t charge anymore.',
+  'Worked for 3 days then nothing. Charging light doesn\'t turn on.',
+  'Charging port came loose after a week.',
+  'Won\'t hold a charge longer than one use.',
+  'Motor makes a grinding noise and got hot. Stopped using it.',
+]
+const ADDON_POS = ['Recommend!', 'Will buy again.', 'Thank you seller!', 'Fast shipping to {region}.', 'Packaging was perfect.', '5 stars.', 'Arrived in {days} days.', 'Exactly as pictured.', 'Great for the price.', 'Very satisfied.']
+const ADDON_MID = ['3 stars.', 'Arrived in {days} days.', 'Not bad, not great.', 'Might not buy again.']
+const ADDON_NEG = ['Very disappointed.', 'Do not recommend.', 'Waiting for my refund.', 'Arrived in {days} days, then this.', 'Save your money.']
 const FOLLOW_UPS = ['Still working fine after a month.', 'After 3 weeks — still happy with it.', 'Update: the second one I ordered is also good.']
 const FOLLOW_UPS_NEG = ['Update: seller refused a refund.', 'Update: now it doesn\'t turn on at all.']
 
@@ -332,6 +361,27 @@ export function generateReviews(p: ProductDef, rating: number, today: number, co
   const variants = p.variants.length ? p.variants : [{ name: 'Color', values: ['Default'] }]
   const powered = isPowered(p)
   const out: GenReview[] = []
+  // pick texts without repeating one until its pool is used up (a real listing rarely shows
+  // the same sentence twice on one page)
+  const used = new Set<string>()
+  const pickText = (pool: readonly string[], addons: readonly string[], ...parts: (string | number)[]) => {
+    const start = Math.floor(hrand(...parts) * pool.length)
+    for (let k = 0; k < pool.length; k++) {
+      const t = pool[(start + k) % pool.length]
+      if (!used.has(t)) { used.add(t); return t }
+    }
+    // pool used up: vary a base sentence with a short follow-up, as real buyers do
+    const a0 = Math.floor(hrand(...parts, 'add') * addons.length)
+    for (let k = 0; k < pool.length * addons.length; k++) {
+      const base = pool[(start + Math.floor(k / addons.length)) % pool.length]
+      const add = addons[(a0 + k) % addons.length]
+      // no "Arrived in 12 days … Arrived in 12 days." or a repeated closing phrase
+      if (base.includes(add) || (/\{(days|region)\}/.test(base) && /\{(days|region)\}/.test(add))) continue
+      const t = `${base} ${add}`
+      if (!used.has(t)) { used.add(t); return t }
+    }
+    return pool[start]
+  }
   for (let i = 0; i < count; i++) {
     const key = [p.id, week, i] as const
     const u = hrand(...key, 'stars')
@@ -341,16 +391,16 @@ export function generateReviews(p: ProductDef, rating: number, today: number, co
     let text: string
     if (stars >= 4) {
       const pool = hrand(...key, 'nichepool') < 0.35 ? POS_NICHE[p.niche] : POS_GENERIC
-      text = hpick(pool, ...key, 'pos')
+      text = pickText(pool, ADDON_POS, ...key, 'pos')
     } else if (stars === 3) {
-      text = hpick(MID, ...key, 'mid')
+      text = pickText(MID, ADDON_MID, ...key, 'mid')
     } else {
       const pool = powered && hrand(...key, 'pw') < 0.45 ? NEG_POWERED : NEG_GENERIC
-      text = hpick(pool, ...key, 'neg')
+      text = pickText(pool, ADDON_NEG, ...key, 'neg')
     }
     text = text
-      .replace('{days}', String(hint(p.shipDays[0] + 3, p.shipDays[1] + 6, ...key, 'd')))
-      .replace('{region}', hpick(REGIONS, ...key, 'rg'))
+      .replace(/\{days\}/g, String(hint(p.shipDays[0] + 3, p.shipDays[1] + 6, ...key, 'd')))
+      .replace(/\{region\}/g, hpick(REGIONS, ...key, 'rg'))
       .replace('{noun}', noun)
       .replace('{variant}', firstVariant.toLowerCase())
     const photos = stars >= 4 ? (hrand(...key, 'ph') < 0.28 ? hint(1, 3, ...key, 'phn') : 0) : stars <= 2 && hrand(...key, 'phb') < 0.4 ? 1 : 0

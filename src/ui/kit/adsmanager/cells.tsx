@@ -6,6 +6,7 @@ import { Pencil } from 'lucide-react'
 import { BENCHMARKS } from '../../../data/benchmarks'
 import { cx } from '../common/utils'
 import { Floating } from '../common/Floating'
+import { usePauseWhileMounted } from '../../../core/ui'
 import { amThemeClass, useAmTheme, type AmTheme } from './theme'
 import { AmButton, AmField, AmInput, AmTooltip } from './controls'
 import './adsmanager.css'
@@ -145,6 +146,12 @@ export interface BudgetCellProps {
   /** disable editing with a reason tooltip */
   lockedReason?: ReactNode
   theme?: AmTheme
+  /**
+   * Optional: the platform's own verdict for a proposed amount. When given, it replaces the
+   * built-in "% vs. current" learning-reset warning (return undefined for no warning). Lets a
+   * site use the sim's real baseline (budget at the last learning reset) instead of the current budget.
+   */
+  warningFor?: (next: number) => string | undefined
 }
 /** Minimum daily budget per platform/level, from the benchmarks file. */
 export function minDailyBudget(theme: AmTheme, level: 'campaign' | 'adset' = 'adset'): number {
@@ -186,12 +193,14 @@ export function checkBudgetEdit(
 /** Budget column: "$50.00 / Daily" with a click-to-edit popover that warns like the real platforms. */
 export function BudgetCell({
   amount, period = 'daily', usingParent, level = 'adset', editable, onChange, minBudget, learningResetThreshold: thr, warnLearning = true,
-  lockedReason, theme,
+  lockedReason, theme, warningFor,
 }: BudgetCellProps) {
   const t = useAmTheme(theme)
   const anchor = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState('')
+  // an open budget editor holds the game clock
+  usePauseWhileMounted('am-budget-pop', open)
   if (usingParent || amount === null) {
     return (
       <span className="am-budget">
@@ -235,7 +244,7 @@ export function BudgetCell({
           <span className="am-budget-pop-title">{periodLabel} budget</span>
           <AmField
             error={draft ? check.error : undefined}
-            warning={warnLearning ? check.warning : undefined}
+            warning={warningFor ? (!check.error && Number.isFinite(next) && next !== amount ? warningFor(next) : undefined) : warnLearning ? check.warning : undefined}
             help={`Minimum ${amFmt.money(minBudget ?? minDailyBudget(t, level))} per day`}
           >
             <AmInput value={draft} onChange={setDraft} type="currency" prefix="$" suffix="USD" autoFocus selectOnFocus onEnter={save} ariaLabel="Budget" />

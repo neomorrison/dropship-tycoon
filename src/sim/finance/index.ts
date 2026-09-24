@@ -46,7 +46,7 @@ export function financeOnNewGame(s: GameState): void {
   mail(s, {
     ...CHAISE, path: 'card', subject: 'Welcome to your Chaise Sapphire card',
     body: [
-      `Your Chaise Sapphire Visa is active.`,
+      `Your Chaise Sapphire card is active.`,
       '',
       `Credit limit: $${c.limit.toLocaleString('en-US')}`,
       `Purchase APR: ${(c.apr * 100).toFixed(2)}% (variable)`,

@@ -339,7 +339,7 @@ Tabs: **New brief** (product picker [store products; shows sample/stock status],
 - **Ecom Academy**: Coach Kev (portrait p12 `COACH_PORTRAIT`; "Ask Kev" → `askCoach`), glossary & benchmarks (from BENCHMARKS + docs/BENCHMARKS.md rules of thumb), courses (study activity per skill), milestones gallery, skill levels.
 
 ## 10. Balance targets (verified later with headless bots)
-- **Novice bot** (random product, supplier title/description, price 2× cogs, 1 supplier-edit creative, $50/day broad, doubles budget after any sale, never refreshes, never answers tickets): loses money in ≥85% of 90-day runs; typical ROAS 0.4–1.0.
+- **Novice bot** (random product, supplier title/description, price 2× cogs, 1 supplier-edit creative, $50/day broad, doubles budget after any sale, never refreshes, never answers tickets): loses money in ≥85% of 90-day runs; median ROAS ~0.1 (0.3–0.9 when it happens to pick a sound product: winner or high-ticket). At a ~$19 order, 0.3+ would need a top-decile 5–6% CVR, which a supplier-copy page can't reach (see §6 conversion formula, §7 benchmarks).
 - **Expert bot** (picks from high perceived-value gap / rising / low-saturation signals, page grade ≥ 80, price ≈ 0.85–0.95× perceived, 4+ creatives fitting best hooks/angles, kills ads at 2× BE CPA without purchases, scales 20%/day above 1.3× BE ROAS, refreshes at frequency > 3, pays card, answers tickets, stocks before CNY): profitable within 30–45 days on Normal in ≥70% of runs; $500–2,000/day revenue by day 90; >$5k/day achievable by ~6 months with bulk + creative refresh.
 - Typical winners: break-even ROAS 1.6–2.2; good ad CTR 1.5–3%, hook 30–40%, CVR 2.5–4.5%, CPA below BE.
 

@@ -99,7 +99,8 @@ export function researchInsights(s: GameState, catalogId: string): string[] {
   out.push(
     advEst < 3 ? 'Almost nobody is running ads on it yet.'
       : skill >= 4 ? `About ${r0(advEst)} stores are running ads on it right now.`
-        : advEst < 15 ? 'A handful of stores are running ads on it.'
+        : advEst < 7 ? 'A handful of stores are running ads on it.'
+          : advEst < 15 ? 'Several stores (roughly ten) are running ads on it.'
           : advEst < 40 ? 'Quite a few stores (a few dozen) are running ads on it.'
             : 'Lots of stores are running ads on it — it is a crowded product.',
   )

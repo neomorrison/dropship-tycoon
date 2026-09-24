@@ -57,7 +57,7 @@ export function apartmentEligibility(s: GameState, tier: number): Eligibility {
   const rentBill = s.finance.bills.find(b => b.ref === 'rent')
   if (tier > 0 && (rentBill?.arrears ?? 0) > 0) return { ...e, reason: 'Pay your past-due rent first — every landlord runs a rental history check.' }
   const refund = s.home.deposit ?? 0
-  if (cash + refund < deposit + proratedRent) return { ...e, reason: `You need ${usd(deposit + proratedRent)} in checking for the deposit and first month (landlords don't take credit cards).` }
+  if (cash + refund < deposit + proratedRent) return { ...e, reason: `You need ${usd(deposit + proratedRent - refund)} in checking for the deposit and first month${refund > 0 ? ' (after your old deposit comes back)' : ''} — landlords don't take credit cards.` }
   if (cash + refund - deposit - proratedRent + cardAvailable(s) < movers) return { ...e, reason: `You can't cover the movers (${usd(movers, false)}).` }
   return { ...e, ok: true }
 }

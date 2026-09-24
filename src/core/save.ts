@@ -71,7 +71,7 @@ export function exportSave(s: GameState) {
   const blob = new Blob([JSON.stringify(s)], { type: 'application/json' })
   const a = document.createElement('a')
   a.href = URL.createObjectURL(blob)
-  a.download = `dropship-tycoon-${s.meta.playerName.replace(/\W+/g, '_')}-day${dayOf(s.time.hour)}.json`
+  a.download = `dropship-tycoon-${s.meta.playerName.replace(/\W+/g, '_')}-day${dayOf(s.time.hour) + 1}.json`
   a.click()
   setTimeout(() => URL.revokeObjectURL(a.href), 1000)
 }

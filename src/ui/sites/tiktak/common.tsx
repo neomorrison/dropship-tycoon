@@ -5,7 +5,7 @@ import type { AdAccount, GameState } from '../../../core/types'
 import { act, useGS } from '../../../core/store'
 import { openSite } from '../../../core/ui'
 import { hasPixel, payAdBalance, accountSpendLimit } from '../../../sim/ads'
-import { AmButton, AmNotice } from '../../kit/adsmanager'
+import { AmButton, AmNotice, amFmt } from '../../kit/adsmanager'
 import { EmptyArt, type EmptyArtKind, cx } from '../../kit/common'
 import { useTtUi } from './uiState'
 import { accountDisplayId, pickAccount, tiktakAccounts } from './data'
@@ -113,14 +113,14 @@ export function Pill({ tone = 'neutral', children, dot }: { tone?: 'success' | '
 }
 
 /** Percent change chip used on KPI tiles. */
-export function Delta({ cur, prev, invert }: { cur: number | null; prev: number | null; invert?: boolean }) {
+export function Delta({ cur, prev, invert, neutral }: { cur: number | null; prev: number | null; invert?: boolean; neutral?: boolean }) {
   if (cur === null || prev === null || !Number.isFinite(cur) || !Number.isFinite(prev) || prev === 0) return <span className="tt-delta tt-delta-flat">—</span>
   const d = (cur - prev) / Math.abs(prev)
   if (Math.abs(d) < 0.005) return <span className="tt-delta tt-delta-flat">0%</span>
   const up = d > 0
   const good = invert ? !up : up
   return (
-    <span className={cx('tt-delta', good ? 'tt-delta-up' : 'tt-delta-down')}>
+    <span className={cx('tt-delta', neutral ? 'tt-delta-neutral' : good ? 'tt-delta-up' : 'tt-delta-down')}>
       {up ? <ArrowUpRight size={12} strokeWidth={2.5} /> : <ArrowDownRight size={12} strokeWidth={2.5} />}
       {Math.round(Math.abs(d) * 100)}%
     </span>
@@ -141,7 +141,7 @@ export function AccountBanners({ s, account, showPixel = true }: { s: GameState;
           <AmButton size="sm" variant="primary" icon={CreditCard} onClick={() => act(st => { payAdBalance(st, account.id) })}>Pay now</AmButton>
           <AmButton size="sm" onClick={() => navigate('billing')}>View payment</AmButton>
         </>}>
-        {account.statusReason ?? 'We couldn\'t charge your payment method for your ad spend.'} Balance due: <b>${account.unbilled.toFixed(2)}</b>.
+        {account.statusReason ?? 'We couldn\'t charge your payment method for your ad spend.'} Balance due: <b>{amFmt.money(account.unbilled)}</b>.
       </AmNotice>,
     )
   }

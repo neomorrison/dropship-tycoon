@@ -8,7 +8,7 @@ import type { ShopiflyPageProps } from '../route'
 import type { GameState } from '../../../../core/types'
 import { act, getGS, useGS, useGSShallow } from '../../../../core/store'
 import { openSite } from '../../../../core/ui'
-import { formatDate } from '../../../../core/time'
+import { formatDate, hourOfDay } from '../../../../core/time'
 import { getProduct } from '../../../../sim/market'
 import { PLAN_LABEL } from '../../../../sim/store'
 import {
@@ -16,7 +16,7 @@ import {
 } from '../../../kit/polaris'
 import { LineChartCard } from '../../../kit/charts'
 import { cx, formatRange } from '../../../kit/common'
-import { aggregate, formatMetric, metricOf, seriesPoints, sparkValues, zeroToEmpty, type MetricKey } from '../core/analytics'
+import { aggregate, aggregateToHour, formatMetric, metricOf, seriesPoints, sparkValues, zeroToEmpty, type MetricKey } from '../core/analytics'
 import { useSfRange } from '../core/rangeState'
 import { MetricTile, RangeControls, useNow, useToday } from '../core/ui'
 import { needsFulfillment } from '../core/orders'
@@ -35,13 +35,14 @@ export default function Home({ navigate }: ShopiflyPageProps) {
   const data = useMemo(() => {
     const state = getGS()
     const cur = aggregate(state, r.range)
-    const prev = r.cmp ? aggregate(state, r.cmp) : null
+    // a range that ends today is still in progress: compare with the same point of the previous period
+    const prev = !r.cmp ? null : r.range.to === today ? aggregateToHour(state, r.cmp, hourOfDay(state.time.hour)) : aggregate(state, r.cmp)
     const spark: Record<string, number[]> = {}
     for (const k of HOME_METRICS) spark[k] = sparkValues(state, k, r.range)
     const points = zeroToEmpty(seriesPoints(state, metric, r.range, r.cmp))
     return { cur, prev, spark, points }
     // daily/hourly are the inputs; getGS() reads the same snapshot
-  }, [daily, hourly, r.range, r.cmp, metric]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [daily, hourly, r.range, r.cmp, metric, today]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <PolarisProvider>
@@ -50,7 +51,7 @@ export default function Home({ navigate }: ShopiflyPageProps) {
         <InlineStack align="space-between" blockAlign="center" gap="200">
           <InlineStack gap="200" blockAlign="center">
             <RangeControls r={r} today={today} compare={false} size="slim" />
-            <Button size="slim" disabled>All channels</Button>
+            <ChannelPicker />
           </InlineStack>
           <button type="button" className="sf-live-pill" onClick={() => navigate('analytics/live')}>
             <span className={cx('sf-live-dot', live > 0 && 'is-live')} />
@@ -92,6 +93,27 @@ export default function Home({ navigate }: ShopiflyPageProps) {
         <Tips navigate={navigate} />
       </div></div>
     </PolarisProvider>
+  )
+}
+
+/** "All channels" filter. Every sale in the game comes through the Online Store channel. */
+function ChannelPicker() {
+  const [open, setOpen] = useState(false)
+  const [channel, setChannel] = useState<'All channels' | 'Online Store'>('All channels')
+  return (
+    <Popover
+      active={open}
+      onClose={() => setOpen(false)}
+      activator={<Button size="slim" disclosure pressed={open} onClick={() => setOpen(o => !o)}>{channel}</Button>}
+    >
+      <ActionList
+        onActionAnyItem={() => setOpen(false)}
+        items={[
+          { content: 'All channels', active: channel === 'All channels', onAction: () => setChannel('All channels') },
+          { content: 'Online Store', active: channel === 'Online Store', helpText: 'Every order comes from your online store', onAction: () => setChannel('Online Store') },
+        ]}
+      />
+    </Popover>
   )
 }
 
@@ -250,11 +272,11 @@ function ThingsToDo({ navigate }: { navigate: (p: string) => void }) {
     const cb = chargebacks.filter(c => c.status === 'needs_response')
     if (cb.length) {
       const soonest = Math.min(...cb.map(c => c.respondByDay))
-      out.push({ key: 'cb', icon: Gavel, tone: 'critical', title: `${cb.length} chargeback${cb.length === 1 ? '' : 's'} need a response`, sub: `Respond by ${formatDate(soonest, 'md')} or the dispute is lost`, path: 'disputes' })
+      out.push({ key: 'cb', icon: Gavel, tone: 'critical', title: `${cb.length} chargeback${cb.length === 1 ? ' needs' : 's need'} a response`, sub: `${soonest <= today ? 'Respond today' : soonest === today + 1 ? 'Respond by tomorrow' : `Respond by ${formatDate(soonest, 'md')}`} or the dispute is lost`, path: 'disputes' })
     }
     const escalated = tickets.filter(t => t.status === 'escalated').length
     const open = tickets.filter(t => t.status === 'open').length
-    if (escalated) out.push({ key: 'esc', icon: ShieldAlert, tone: 'critical', title: `${escalated} overdue customer message${escalated === 1 ? '' : 's'}`, sub: 'Customers waited more than 48 hours for a reply', path: 'inbox' })
+    if (escalated) out.push({ key: 'esc', icon: ShieldAlert, tone: 'critical', title: `${escalated} overdue customer message${escalated === 1 ? '' : 's'}`, sub: 'Customers waited more than 48 hours for a reply', path: 'inbox/overdue' })
     if (open) out.push({ key: 'open', icon: MessageCircle, title: `${open} customer message${open === 1 ? '' : 's'} to answer`, sub: 'Reply within 48 hours', path: 'inbox' })
     // with DSerz, orders are placed within the hour: only flag ones that are stuck (supplier charge failed)
     const unf = orders.filter(o => needsFulfillment(o) && (!dserz || now - o.hour >= 2))
@@ -267,7 +289,7 @@ function ThingsToDo({ navigate }: { navigate: (p: string) => void }) {
       })
     }
     const next = payouts.filter(p => p.status === 'pending').sort((a, b) => a.arriveDay - b.arriveDay)[0]
-    if (next) out.push({ key: 'po', icon: CircleDollarSign, title: `${usd(next.amount)} payout ${next.arriveDay <= today ? 'arriving today' : `arriving ${formatDate(next.arriveDay, 'md')}`}`, sub: 'Shopifly Payments → Chaise checking', path: 'finances/payouts' })
+    if (next) out.push({ key: 'po', icon: CircleDollarSign, title: `${usd(next.amount)} payout ${next.arriveDay <= today ? 'arriving today' : `arriving ${formatDate(next.arriveDay, 'md')}`}`, sub: 'Shopifly Payments → Chaise checking', path: `finances/payouts/${next.id}` })
     else if (pending > 0) out.push({ key: 'bal', icon: CircleDollarSign, title: `${usd(pending)} in your Shopifly balance`, sub: 'Paid out after tonight\'s settlement', path: 'finances' })
     const held = payouts.filter(p => p.status === 'held')
     if (hold?.active || held.length) out.push({ key: 'hold', icon: Clock, tone: 'warning', title: held.length ? `${held.length} payout${held.length === 1 ? '' : 's'} on hold` : 'Payout reserve active', sub: hold?.reason ?? 'Payouts are paused for review', path: 'finances' })

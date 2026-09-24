@@ -3,7 +3,7 @@
 // Breakdown, Reports), the table (or charts), the edit drawer and the create flow.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
-  ChartColumn, ClipboardCopy, Copy, FlaskConical, ListFilter, Lock, Pencil, Plus, RefreshCw, Table2, Trash, Zap, ChevronRight,
+  ChartColumn, ClipboardCopy, Copy, FlaskConical, ListFilter, Lock, Pencil, Plus, Table2, Trash, Zap, ChevronRight,
 } from 'lucide-react'
 import type { AdAccount, AdLevel, GameState } from '../../../core/types'
 import { act } from '../../../core/store'
@@ -16,6 +16,7 @@ import {
   BreakdownMenu, ColumnsMenu, EntityTabs, MetricCell, StatusCell, Toggle, amFmt, type AmColumnPreset,
 } from '../../kit/adsmanager'
 import { ImageWithFallback, resolvePreset, type DateRangeValue } from '../../kit/common'
+import { breakEven } from '../../../sim/store'
 import { buildColumns, deliveryFor } from './columns'
 import { accountData, breakdownRows, buildRows, resultLabels, resultsOf, type Row } from './data'
 import { BUILTIN_PRESETS, METRICS, METRIC_BY_ID, effectiveColumns } from './metrics'
@@ -84,8 +85,8 @@ export function Manager({ s, acc, navigate, compact, autoCreate, autoCreativeId 
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [dupOpen, setDupOpen] = useState(false)
   const [ruleOpen, setRuleOpen] = useState(false)
-  const [flash, setFlash] = useState<string | null>(null)
-  const [refreshing, setRefreshing] = useState(false)
+  const [flash, setFlashState] = useState<{ text: string; tone: 'success' | 'error' } | null>(null)
+  const setFlash = (text: string | null, tone: 'success' | 'error' = 'success') => setFlashState(text ? { text, tone } : null)
   // the table scrolls inside itself (sticky header/footer): size it to the Ads Manager viewport
   const hostRef = useRef<HTMLDivElement>(null)
   const [mainH, setMainH] = useState(640)
@@ -121,6 +122,11 @@ export function Manager({ s, acc, navigate, compact, autoCreate, autoCreativeId 
       return !deliveryFilters.length || deliveryFilters.some(f => matchesFilter(f, label, r))
     })
   }, [scoped, ui.query, ui.filters, s, d])
+  // break-even inputs change rarely; breakdown sub-rows re-render only when these or their stats change
+  const beSig = useMemo(
+    () => (ui.breakdown ? s.store.products.map(p => `${p.id}:${breakEven(s, p.id).breakEvenRoas.toFixed(4)}`).join(',') : ''),
+    [ui.breakdown, s.store, s.catalog], // eslint-disable-line react-hooks/exhaustive-deps
+  )
   const breakdown = useMemo(
     () => (ui.breakdown && ui.view === 'table' && !compact ? breakdownRows(d, range, ui.breakdown, level) : null),
     [ui.breakdown, ui.view, compact, d, range.from, range.to, level], // eslint-disable-line react-hooks/exhaustive-deps
@@ -128,23 +134,35 @@ export function Manager({ s, acc, navigate, compact, autoCreate, autoCreativeId 
 
   // ---- create flow ----
   const openCreate = () => {
+    // Like Ads Manager's quick-create dialog: a selected ad set (or the ad set of a selected ad)
+    // can take a new ad, and a selected campaign (or the campaign of the selected ad set) a new ad set.
     const opts: CreateStart[] = []
-    if (level === 'ad' && sel.adset.length === 1) opts.push({ mode: 'ad', adSetId: sel.adset[0] })
-    if ((level === 'adset' || level === 'ad') && sel.campaign.length === 1) opts.push({ mode: 'adset', campaignId: sel.campaign[0] })
-    if (level === 'ad' && !sel.adset.length && sel.campaign.length === 1) {
-      const sets = d.adSets.filter(x => x.campaignId === sel.campaign[0])
-      if (sets.length === 1) opts.unshift({ mode: 'ad', adSetId: sets[0].id })
+    const selAd = level === 'ad' && sel.ad.length === 1 ? d.ads.find(a => a.id === sel.ad[0]) : undefined
+    let setId: string | undefined =
+      level === 'campaign' ? undefined : sel.adset.length === 1 ? sel.adset[0] : selAd?.adSetId
+    if (setId && !d.adSetById.has(setId)) setId = undefined
+    let campId: string | undefined =
+      sel.campaign.length === 1 ? sel.campaign[0] : setId ? d.adSetById.get(setId)?.campaignId : selAd?.campaignId
+    if (campId && !d.campaignById.has(campId)) campId = undefined
+    if (!setId && level === 'ad' && campId) {
+      const sets = d.adSets.filter(x => x.campaignId === campId)
+      if (sets.length === 1) setId = sets[0].id
     }
+    if (setId) opts.push({ mode: 'ad', adSetId: setId })
+    if (campId) opts.push({ mode: 'adset', campaignId: campId })
     if (opts.length) setCreate({ step: 'chooser', options: [...opts, { mode: 'new' }] })
     else setCreate({ step: 'objective' })
   }
   const pendingCreative = useRef<string | undefined>(undefined)
   useEffect(() => {
-    if (autoCreate && acc.status !== 'restricted' && acc.status !== 'disabled') {
+    if (!autoCreate) return
+    if (acc.status !== 'restricted' && acc.status !== 'disabled') {
       pendingCreative.current = autoCreativeId
       setCreate({ step: 'objective' })
-      navigate('manage/campaigns')
+    } else {
+      setFlash(`You can't create ads while this ad account is ${acc.status}. Request a review in Account quality, or switch to another ad account.`, 'error')
     }
+    navigate('manage/campaigns')
   }, [autoCreate]) // eslint-disable-line react-hooks/exhaustive-deps
   const accountBlocked = acc.status === 'restricted' || acc.status === 'disabled'
 
@@ -171,15 +189,29 @@ export function Manager({ s, acc, navigate, compact, autoCreate, autoCreativeId 
   }
   const duplicate = (ids: string[], copies = 1) => {
     const made: string[] = []
+    let why: string | null = null
     act(g => {
       for (const id of ids) for (let i = 0; i < copies; i++) {
+        const lastBefore = g.notifications[g.notifications.length - 1]?.id
         const nid = duplicateEntity(g, level, id)
         if (nid) made.push(nid)
+        else if (!why) {
+          // the sim explains refusals in a notification ("Raise the campaign budget to …")
+          const last = g.notifications[g.notifications.length - 1]
+          if (last && last.id !== lastBefore && last.kind === 'warning') why = last.body ?? null
+        }
       }
     })
+    const failed = ids.length * copies - made.length
     if (made.length) {
       setSelection(level, made)
-      setFlash(`${made.length} ${levelWord(level, made.length)} duplicated. Duplicates go through review and start a new learning phase.`)
+      setFlash(
+        `${made.length} ${levelWord(level, made.length)} duplicated. Duplicates go through review and start a new learning phase.`
+          + (failed ? ` ${failed} couldn't be duplicated${why ? `: ${why}` : '.'}` : ''),
+        failed ? 'error' : 'success',
+      )
+    } else if (failed) {
+      setFlash(`Couldn't duplicate ${ids.length === 1 ? `this ${levelWord(level, 1)}` : `these ${levelWord(level, 2)}`}${why ? `: ${why}` : '.'}`, 'error')
     }
   }
   const remove = () => {
@@ -228,7 +260,7 @@ export function Manager({ s, acc, navigate, compact, autoCreate, autoCreativeId 
       await navigator.clipboard.writeText(csv)
       setFlash(`Copied ${visible.length} row${visible.length === 1 ? '' : 's'} to the clipboard as CSV.`)
     } catch {
-      setFlash('Your browser blocked clipboard access.')
+      setFlash('Your browser blocked clipboard access.', 'error')
     }
   }
 
@@ -247,11 +279,6 @@ export function Manager({ s, acc, navigate, compact, autoCreate, autoCreativeId 
   ]
   const chartRows = selectedHere.length ? visible.filter(r => selectedHere.includes(r.id)) : visible
   const entityName = level === 'campaign' ? { singular: 'campaign', plural: 'campaigns' } : level === 'adset' ? { singular: 'ad set', plural: 'ad sets' } : { singular: 'ad', plural: 'ads' }
-
-  const refresh = () => {
-    setRefreshing(true)
-    setTimeout(() => setRefreshing(false), 700)
-  }
 
   const emptyState = d.campaigns.length === 0 ? (
     <div className="fb-table-empty">
@@ -272,7 +299,7 @@ export function Manager({ s, acc, navigate, compact, autoCreate, autoCreativeId 
     <div className="fb-manager" ref={hostRef}>
       <SetupNotices s={s} navigate={navigate} compact={compact} />
       <AccountNotices s={s} acc={acc} navigate={navigate} />
-      {flash && <AmNotice tone="success" onDismiss={() => setFlash(null)}>{flash}</AmNotice>}
+      {flash && <AmNotice tone={flash.tone} onDismiss={() => setFlash(null)}>{flash.text}</AmNotice>}
 
       <div className="fb-searchbar">
         <div className="fb-searchbar-left">
@@ -295,11 +322,6 @@ export function Manager({ s, acc, navigate, compact, autoCreate, autoCreativeId 
           ))}
         </div>
         <div className="fb-searchbar-right">
-          {!compact && (
-            <button type="button" className="fb-updated" onClick={refresh} title="Refresh">
-              <RefreshCw size={13} className={refreshing ? 'fb-spin' : undefined} /> {refreshing ? 'Updating…' : 'Updated just now'}
-            </button>
-          )}
           <AmDateRangePicker
             value={dateValue}
             today={today}
@@ -343,6 +365,7 @@ export function Manager({ s, acc, navigate, compact, autoCreate, autoCreativeId 
                 locked={['delivery']}
                 onSavePreset={savePreset}
                 onDeletePreset={deletePreset}
+                inlineModal
               />
               <BreakdownMenu
                 value={ui.breakdown}
@@ -393,7 +416,7 @@ export function Manager({ s, acc, navigate, compact, autoCreate, autoCreativeId 
           defaultSort={{ columnId: 'spend', direction: 'desc' }}
           subRows={breakdown ? r => breakdown.get(r.id) ?? [] : undefined}
           subRowKey={r => r.key}
-          rowMuted={r => r.entity.status !== 'active'}
+          subRowSignature={breakdown ? r => `${colIds.join(',')}|${beSig}|${r.key}|${r.resultKind}|${r.playSec}|${r.vidImps}|${Object.values(r.st).join(',')}` : undefined}
           maxHeight={Math.max(320, mainH - 190)}
           emptyState={emptyState}
         />

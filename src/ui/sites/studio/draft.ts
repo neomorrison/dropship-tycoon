@@ -1,6 +1,7 @@
 // The in-progress brief lives in a small UI-only store (not saved with the game) so it survives
 // hopping between the brief, the library and the creator marketplace.
 import { create } from 'zustand'
+import { getGS } from '../../../core/store'
 import type { AngleId, BeatId, Creative, CreativeProducer, FormatId, HookId } from '../../../core/types'
 import type { AdPlatform } from '../../kit/phone'
 
@@ -87,6 +88,7 @@ export const useBriefDraft = create<DraftStore>()((set, get) => ({
   clearBeats: () => set({ beats: [] }),
   loadFromCreative: (c, storeProductId) =>
     set({
+      saveId: getGS().meta.saveId,
       storeProductId,
       format: c.format,
       hook: c.hook,
@@ -100,3 +102,12 @@ export const useBriefDraft = create<DraftStore>()((set, get) => ({
       lastOrderedId: null,
     }),
 }))
+
+/** Bind the draft to the loaded save before editing it from outside the brief page (a stale draft from another save is cleared). */
+export function draftForCurrentSave(): void {
+  const saveId = getGS().meta.saveId
+  const d = useBriefDraft.getState()
+  if (d.saveId === saveId) return
+  if (d.saveId === null) d.patch({ saveId })
+  else d.reset({ saveId })
+}

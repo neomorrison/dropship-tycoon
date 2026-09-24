@@ -4,7 +4,8 @@ import type { ReactNode } from 'react'
 import { CalendarDays, DollarSign, House, LogOut, Medal, Thermometer } from 'lucide-react'
 import type { SiteProps } from '../types'
 import { JOB_RANKS, MANAGER } from '../../../data/job'
-import { segs, useWorld } from '../bank/lifeCommon'
+import { segs, todayOf, useWorld } from '../bank/lifeCommon'
+import { yearOf } from '../../../core/time'
 import { CareerPage, HomePage, PayPage, ResignPage, SchedulePage, TimeOffPage, employeeId } from './pages'
 import './mcdoodles.css'
 
@@ -61,7 +62,7 @@ export default function McDoodlesCrew({ path, navigate, compact }: SiteProps) {
       </header>
       <main className="md-main">{body}</main>
       <footer className="md-footer">
-        McDoodle's Crew Portal · {MANAGER.store} · Questions about pay? Ask your General Manager. · © 2026 McDoodle's Restaurants, LLC
+        McDoodle's Crew Portal · {MANAGER.store} · Questions about pay? Ask your General Manager. · © {yearOf(todayOf(s))} McDoodle's Restaurants, LLC
       </footer>
     </div>
   )

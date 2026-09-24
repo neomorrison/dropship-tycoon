@@ -6,11 +6,17 @@ import { act, getGS, useGS } from '../../../core/store'
 import { openSite } from '../../../core/ui'
 import { formatDate } from '../../../core/time'
 import { MAX_RESEARCH, marketHistory, researchInsights, startResearch } from '../../../sim/market'
-import { canDoActivity } from '../../../sim/life'
+import { activityDuration, canDoActivity } from '../../../sim/life'
 import { TrendChart } from '../../kit/charts'
 import { cx } from '../../kit/common'
 import { onDraft, useToday } from './hooks'
 import type { Row } from './lib'
+
+const fmtDuration = (min: number) => {
+  const h = Math.floor(min / 60)
+  const m = Math.round(min % 60)
+  return h ? (m ? `${h}h ${m}m` : `${h}h`) : `${m}m`
+}
 
 const LEVELS = [
   { title: 'Pricing & competition', text: 'What competing stores charge, the Amazin price anchor, your real landed cost, and how many stores advertise it.' },
@@ -33,7 +39,10 @@ export default function ItemResearch({ row }: { row: Row }) {
 
   const running = activity?.kind === 'product_research' && activity.payload?.catalogId === id ? activity : null
   const queued = !running && queue.some(a => a.kind === 'product_research' && a.payload?.catalogId === id)
-  const check = useMemo(() => onDraft(s => ({ ...canDoActivity(s, 'product_research') })), [activity, queue, today])
+  const hour = useGS(s => s.time.hour)
+  const check = useMemo(() => onDraft(s => ({ ...canDoActivity(s, 'product_research') })), [activity, queue, hour])
+  // real length after productivity (tired / old laptop = slower), not the nominal 1h
+  const minutes = useMemo(() => onDraft(s => activityDuration(s, 'product_research')), [activity, queue, hour])
   const maxed = depth >= MAX_RESEARCH
   const progress = running ? 1 - running.remainingMin / Math.max(1, running.durationMin) : 0
 
@@ -71,7 +80,7 @@ export default function ItemResearch({ row }: { row: Row }) {
         ) : (
           <>
             <button type="button" className="ax-btn ax-btn-red" onClick={start} disabled={!check.ok}>
-              <FlaskConical size={15} /> Research this product (1h)
+              <FlaskConical size={15} /> Research this product ({fmtDuration(minutes)})
             </button>
             <span className="ax-muted ax-small">{check.ok ? `Next: ${LEVELS[depth].title.toLowerCase()} · +40 research XP` : check.reason}</span>
           </>
@@ -82,13 +91,15 @@ export default function ItemResearch({ row }: { row: Row }) {
         {insights.map((t, i) => <li key={i} className={cx(depth === 0 && 'ax-res-note-muted')}>{t}</li>)}
       </ul>
 
-      {depth >= 2 && history.length > 2 && (
+      {depth >= 2 && (
         <div className="ax-res-chart">
           <div className="ax-res-chart-h">
             <b>Supplier orders, rolling 30 days</b>
             <span className="ax-muted ax-small">Public order counter sampled every 2 days. Includes orders from every store selling it.</span>
           </div>
-          <TrendChart data={history} xKey="label" series={[{ key: 'orders', label: 'Orders (30d)', color: '#fd384f', area: true }]} format="number" height={180} legend={false} zeroBaseline={false} />
+          {history.length > 2
+            ? <TrendChart data={history} xKey="label" series={[{ key: 'orders', label: 'Orders (30d)', color: '#fd384f', area: true }]} format="number" height={180} legend={false} zeroBaseline={false} />
+            : <div className="ax-res-chart-empty"><Clock size={16} /> Tracking started recently ({history.length} sample{history.length === 1 ? '' : 's'} so far). The trend line appears after a few more readings, one every 2 days.</div>}
         </div>
       )}
 

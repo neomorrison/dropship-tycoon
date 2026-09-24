@@ -3,18 +3,32 @@
 import { useMemo, useState } from 'react'
 import { Banknote, CircleDollarSign, Landmark, Lock } from 'lucide-react'
 import type { ShopiflyPageProps } from '../route'
-import type { Day, Order, Payout } from '../../../../core/types'
+import type { Day, GameState, Order, Payout } from '../../../../core/types'
 import { act, getGS, useGS, useGSShallow } from '../../../../core/store'
 import { dayOf, formatDate } from '../../../../core/time'
 import { acceptCapital, activeCapital, capitalOffer, CAPITAL_RULES } from '../../../../sim/finance'
 import { PAYMENT_LABELS, PLAN_LABEL } from '../../../../sim/store'
 import { BENCHMARKS } from '../../../../data/benchmarks'
+import { DIFFICULTY } from '../../../../core/difficulty'
 import {
   Badge, Banner, BlockStack, Button, Card, DataTable, EmptyState, IndexFilters, IndexTable, InlineGrid, InlineStack, Link,
   Modal, Page, PolarisProvider, ProgressBar, Text, type BadgeTone,
 } from '../../../kit/polaris'
 import { SummaryLine, TableCard, useNow, useToday } from '../core/ui'
-import { listDate, longDate, usd } from '../core/format'
+import { listDate, longDate, orderMinute, usd } from '../core/format'
+
+/** Store subscriptions (plan, apps, domain) from the bills list, soonest first — shared by Overview and Billing. */
+function storeBillsOf(bills: GameState['finance']['bills']) {
+  return bills
+    .filter(b => b.business && (b.ref === 'shopifly_plan' || b.ref?.startsWith('app:') || b.ref === 'domain' || /shopifly|domain/i.test(b.name)))
+    .sort((a, b) => a.nextDueDay - b.nextDueDay)
+}
+/** Monthly equivalent of a set of bills (yearly / 12, weekly × 4.33). */
+const monthlyOf = (bills: GameState['finance']['bills']) =>
+  bills.reduce((a, b) => a + (b.cadence === 'monthly' ? b.amount : b.cadence === 'weekly' ? b.amount * 4.33 : b.amount / 12), 0)
+
+/** 0.125 → "12.5%", 0.13 → "13%" (one decimal only when it matters) */
+const ratePct = (x: number) => `${Number((x * 100).toFixed(1))}%`
 
 export default function Finances(props: ShopiflyPageProps) {
   const [a, b] = props.params
@@ -72,8 +86,8 @@ function Overview({ navigate }: ShopiflyPageProps) {
   const inTransit = upcoming.filter(p => p.status === 'pending').reduce((a, p) => a + p.amount, 0)
   const onHold = upcoming.filter(p => p.status === 'held').reduce((a, p) => a + p.amount, 0)
   const reserved = (reserves ?? []).reduce((a, r) => a + r.amount, 0)
-  const storeBills = useMemo(() => bills.filter(b => b.business && b.payWith === 'card' && (b.ref === 'shopifly_plan' || b.ref?.startsWith('app:') || b.ref === 'domain')).sort((a, b) => a.nextDueDay - b.nextDueDay), [bills])
-  const monthly = storeBills.filter(b => b.cadence === 'monthly').reduce((a, b) => a + b.amount, 0)
+  const storeBills = useMemo(() => storeBillsOf(bills), [bills])
+  const monthly = monthlyOf(storeBills)
   const recent = useMemo(() => [...payouts].sort((a, b) => b.arriveDay - a.arriveDay || b.createdDay - a.createdDay).slice(0, 5), [payouts])
 
   return (
@@ -129,13 +143,13 @@ function Overview({ navigate }: ShopiflyPageProps) {
               <BlockStack gap="200">
                 <Text as="p">{usd(loan.remaining)} left to repay</Text>
                 <ProgressBar progress={(1 - loan.remaining / (loan.principal * (1 + (loan.feePct ?? 0)))) * 100} size="small" tone="success" />
-                <Text as="p" variant="bodySm" tone="subdued">{Math.round(loan.withholdPct * 100)}% of each payout goes to repayment.</Text>
+                <Text as="p" variant="bodySm" tone="subdued">{ratePct(loan.withholdPct)} of each payout goes to repayment.</Text>
               </BlockStack>
             ) : offer ? (
               <BlockStack gap="200">
                 <Badge tone="success">Pre-qualified</Badge>
                 <Text as="p" variant="headingLg">{usd(offer.amount, false)}</Text>
-                <Text as="p" variant="bodySm" tone="subdued">Fixed fee {usd(offer.fee)} · repaid from {Math.round(offer.withholdPct * 100)}% of payouts</Text>
+                <Text as="p" variant="bodySm" tone="subdued">Fixed fee {usd(offer.fee)} · repaid from {ratePct(offer.withholdPct)} of payouts</Text>
               </BlockStack>
             ) : (
               <Text as="p" tone="subdued">Funding offers are based on your sales history on Shopifly. Keep selling to become eligible.</Text>
@@ -180,6 +194,7 @@ function PayoutTable({ rows, today, navigate, compact }: { rows: Payout[]; today
 function PayoutsPage({ navigate }: ShopiflyPageProps) {
   const today = useToday()
   const payouts = useGS(s => s.store.payouts)
+  const payoutDays = useGS(s => DIFFICULTY[s.meta.difficulty].payoutDays)
   const [tab, setTab] = useState(0)
   const views = ['All', 'Scheduled', 'On hold', 'Paid'] as const
   const rows = useMemo(() => payouts.filter(p => {
@@ -194,7 +209,7 @@ function PayoutsPage({ navigate }: ShopiflyPageProps) {
         <Card padding="0">
           {payouts.length === 0 ? (
             <EmptyState heading="No payouts yet" image="generic" compact>
-              After your first sale, Shopifly Payments creates a payout every night. It arrives in your bank account after {BENCHMARKS.fees.payoutBusinessDays} business days (plus a one-time {BENCHMARKS.fees.firstPayoutDelayDays}-day delay for new stores).
+              After your first sale, Shopifly Payments creates a payout every night. It arrives in your bank account after {payoutDays} business day{payoutDays === 1 ? '' : 's'} (plus a one-time {BENCHMARKS.fees.firstPayoutDelayDays}-day delay for new stores).
             </EmptyState>
           ) : (
             <>
@@ -258,7 +273,7 @@ function PayoutDetail({ navigate, id }: ShopiflyPageProps & { id: string }) {
               pageSize={25}
               columns={[
                 { id: 'order', title: 'Order', render: o => <Text as="span" fontWeight="semibold">#{o.id}</Text>, sortValue: o => o.id },
-                { id: 'time', title: 'Date', nowrap: true, render: o => listDate(o.hour, now, o.id) },
+                { id: 'time', title: 'Date', nowrap: true, render: o => listDate(o.hour, now, o.id, orderMinute(orders, o)) },
                 { id: 'method', title: 'Payment method', nowrap: true, render: o => methodLabel(o) },
                 { id: 'amt', title: 'Amount', numeric: true, render: o => usd(o.total) },
                 { id: 'fee', title: 'Fee', numeric: true, render: o => usd(-o.fees) },
@@ -276,7 +291,7 @@ const methodLabel = (o: Order) =>
   o.paymentMethod === 'paypal' ? PAYMENT_LABELS.paypal : o.paymentMethod === 'bnpl' ? PAYMENT_LABELS.bnpl : o.paymentMethod === 'shop_pay' ? PAYMENT_LABELS.shopPay : 'Card'
 
 // ---------------------------------------------------------------------------
-interface Txn { key: string; hour: number; type: 'Charge' | 'Refund' | 'Chargeback' | 'Chargeback reversal'; orderId: number; method: string; amount: number; fee: number }
+interface Txn { key: string; hour: number; minute?: number; type: 'Charge' | 'Refund' | 'Chargeback' | 'Chargeback reversal'; orderId: number; method: string; amount: number; fee: number }
 
 function Transactions({ navigate }: ShopiflyPageProps) {
   const now = useNow()
@@ -288,14 +303,14 @@ function Transactions({ navigate }: ShopiflyPageProps) {
     const refundHour = new Map<number, number>()
     for (const t of tickets) if ((t.resolution === 'refunded' || t.resolution === 'partial_refund') && t.solvedHour != null) refundHour.set(t.orderId, t.solvedHour)
     for (const o of orders) {
-      out.push({ key: `c${o.id}`, hour: o.hour, type: 'Charge', orderId: o.id, method: methodLabel(o), amount: o.total, fee: o.fees })
-      if (o.refunded > 0) out.push({ key: `r${o.id}`, hour: refundHour.get(o.id) ?? o.hour + 24, type: 'Refund', orderId: o.id, method: methodLabel(o), amount: -o.refunded, fee: 0 })
+      out.push({ key: `c${o.id}`, hour: o.hour, minute: orderMinute(orders, o), type: 'Charge', orderId: o.id, method: methodLabel(o), amount: o.total, fee: o.fees })
+      if (o.refunded > 0) out.push({ key: `r${o.id}`, hour: o.refundedHour ?? refundHour.get(o.id) ?? o.hour + 24, type: 'Refund', orderId: o.id, method: methodLabel(o), amount: -o.refunded, fee: 0 })
     }
     for (const c of chargebacks) {
       out.push({ key: `d${c.id}`, hour: c.openedDay * 24 + 9, type: 'Chargeback', orderId: c.orderId, method: 'Card', amount: -c.amount, fee: c.fee ?? 15 })
       if (c.status === 'won' && c.decideDay != null) out.push({ key: `w${c.id}`, hour: c.decideDay * 24 + 8, type: 'Chargeback reversal', orderId: c.orderId, method: 'Card', amount: c.amount, fee: -(c.fee ?? 15) })
     }
-    return out.filter(t => t.hour <= now).sort((a, b) => b.hour - a.hour)
+    return out.filter(t => t.hour <= now).sort((a, b) => b.hour - a.hour || (b.minute ?? 0) - (a.minute ?? 0) || b.orderId - a.orderId)
   }, [orders, tickets, chargebacks, now])
   const views = ['All', 'Charges', 'Refunds', 'Chargebacks'] as const
   const rows = useMemo(() => {
@@ -319,8 +334,9 @@ function Transactions({ navigate }: ShopiflyPageProps) {
                 resourceName={{ singular: 'transaction', plural: 'transactions' }}
                 onRowClick={t => navigate(`orders/${t.orderId}`)}
                 pageSize={50}
+                resetPageKey={`${tab}|${q}`}
                 columns={[
-                  { id: 'date', title: 'Date', nowrap: true, sortValue: t => t.hour, render: t => listDate(t.hour, now, t.key) },
+                  { id: 'date', title: 'Date', nowrap: true, sortValue: t => t.hour * 100 + (t.minute ?? 0), render: t => listDate(t.hour, now, t.key, t.minute) },
                   { id: 'type', title: 'Type', nowrap: true, render: t => <Badge tone={t.type === 'Chargeback' ? 'critical' : t.type === 'Refund' ? 'warning' : t.type === 'Chargeback reversal' ? 'success' : undefined}>{t.type}</Badge> },
                   { id: 'order', title: 'Order', render: t => <Link onClick={() => navigate(`orders/${t.orderId}`)}>#{t.orderId}</Link> },
                   { id: 'method', title: 'Payment method', nowrap: true, render: t => t.method },
@@ -343,15 +359,12 @@ function Billing({ navigate }: ShopiflyPageProps) {
   const { bills, ledger, plan, trialEnds, apps } = useGSShallow(s => ({
     bills: s.finance.bills, ledger: s.finance.ledger, plan: s.store.plan, trialEnds: s.store.trialEndsDay, apps: s.store.apps,
   }))
-  const storeBills = useMemo(
-    () => bills.filter(b => b.business && (b.ref === 'shopifly_plan' || b.ref?.startsWith('app:') || b.ref === 'domain' || /shopifly|domain/i.test(b.name))).sort((a, b) => a.nextDueDay - b.nextDueDay),
-    [bills],
-  )
+  const storeBills = useMemo(() => storeBillsOf(bills), [bills])
   const charges = useMemo(
     () => ledger.filter(e => e.business && (e.category === 'apps' || e.category === 'subscription') && e.amount < 0 && !/mineo|upworx/i.test(e.memo)).slice(-40).reverse(),
     [ledger],
   )
-  const monthly = storeBills.reduce((a, b) => a + (b.cadence === 'monthly' ? b.amount : b.cadence === 'weekly' ? b.amount * 4.33 : b.amount / 12), 0)
+  const monthly = monthlyOf(storeBills)
   return (
     <PolarisProvider>
       <Page title="Billing" backAction={{ content: 'Finance', onAction: () => navigate('finances') }}>
@@ -432,7 +445,7 @@ function Capital({ navigate }: ShopiflyPageProps) {
               <InlineGrid columns={{ xs: 1, md: 3 }} gap="300">
                 <SummaryLine label="Funded" value={usd(loan.principal)} />
                 <SummaryLine label="Fixed fee" value={usd(loan.principal * (loan.feePct ?? 0))} />
-                <SummaryLine label="Repayment rate" value={`${Math.round(loan.withholdPct * 100)}% of payouts`} />
+                <SummaryLine label="Repayment rate" value={`${ratePct(loan.withholdPct)} of payouts`} />
               </InlineGrid>
               <Text as="p" variant="bodySm" tone="subdued">Funded {formatDate(loan.takenDay, 'long')}. There's no interest or due date: you repay faster when sales are higher.</Text>
             </BlockStack>
@@ -447,9 +460,9 @@ function Capital({ navigate }: ShopiflyPageProps) {
                 <Text as="p" tone="subdued">Based on your average of {usd(offer.avgDaily ?? 0)} in daily sales over the last {CAPITAL_RULES.minSalesDays} days.</Text>
                 <div className="sf-capital-terms">
                   <SummaryLine label="Funding amount" value={usd(offer.amount)} />
-                  <SummaryLine label="Fixed fee" sub={`${((offer.feePct ?? offer.fee / offer.amount) * 100).toFixed(1)}%`} value={usd(offer.fee)} />
+                  <SummaryLine label="Fixed fee" sub={ratePct(offer.feePct ?? offer.fee / offer.amount)} value={usd(offer.fee)} />
                   <SummaryLine label="Total repayment" value={usd(offer.total ?? offer.amount + offer.fee)} strong />
-                  <SummaryLine label="Repayment rate" value={`${(offer.withholdPct * 100).toFixed(1)}% of each payout`} />
+                  <SummaryLine label="Repayment rate" value={`${ratePct(offer.withholdPct)} of each payout`} />
                 </div>
                 <InlineStack gap="200">
                   <Button variant="primary" onClick={() => setConfirm(true)}>Review offer</Button>
@@ -488,12 +501,13 @@ function Capital({ navigate }: ShopiflyPageProps) {
           onClose={() => setConfirm(false)}
           title="Accept Shopifly Capital offer"
           pauseGame
+          sectioned
           primaryAction={{ content: `Accept ${usd(offer.amount, false)}`, onAction: () => { act(s => { acceptCapital(s) }); setConfirm(false) } }}
           secondaryActions={[{ content: 'Cancel', onAction: () => setConfirm(false) }]}
         >
           <BlockStack gap="300">
             <Text as="p">{usd(offer.amount)} will be deposited to your Chaise checking account today.</Text>
-            <Text as="p">You'll repay {usd(offer.total ?? offer.amount + offer.fee)} in total. {(offer.withholdPct * 100).toFixed(1)}% of every Shopifly payout goes to repayment until the balance is paid, so your payouts shrink while it's active.</Text>
+            <Text as="p">You'll repay {usd(offer.total ?? offer.amount + offer.fee)} in total. {ratePct(offer.withholdPct)} of every Shopifly payout goes to repayment until the balance is paid, so your payouts shrink while it's active.</Text>
             <Text as="p" tone="subdued">Borrowing only helps if the extra spend earns more than the {usd(offer.fee)} fee and the smaller payouts.</Text>
           </BlockStack>
         </Modal>

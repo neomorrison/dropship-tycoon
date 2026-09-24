@@ -14,8 +14,12 @@ import { sectionAvailability } from '../../../../sim/store'
 import { openSite } from '../../../../core/ui'
 import { Badge, BlockStack, Button, Card, InlineStack, Modal, Text, Tooltip } from '../../../kit/polaris'
 import { SectionSettingsEditor, type SettingsCtx } from './SectionSettings'
-import { addSection, moveSection, removeSection, setSectionSettings, toggleSection } from './sectionOps'
+import { addSection, canMoveSection, moveSection, removeSection, setSectionSettings, toggleSection } from './sectionOps'
 import { appShortName } from './shared'
+import { SECTION_ZONE, type SectionZone } from '../../storefront'
+
+/** Top-to-bottom order of the page zones (same order the theme editor's section tree uses). */
+const ZONE_ORDER: SectionZone[] = ['offer', 'variant', 'assure', 'main', 'overlay']
 
 export const SECTION_ICONS: Record<string, LucideIcon> = {
   Star, ShieldCheck, HelpCircle, Truck, BadgeCheck, Layers, PanelBottom, Timer, Columns2, Newspaper, Ruler, Sparkles, Images, Flame,
@@ -121,7 +125,7 @@ export function SectionsCard({
           <Text as="p" tone="subdued">This page only shows the basics: images, title, price, buy buttons and description.</Text>
         ) : (
           <div className="sf-mx-seclist">
-            {sections.map((sec, i) => {
+            {ZONE_ORDER.flatMap(z => sections.filter(x => SECTION_ZONE[x.id] === z)).map(sec => {
               const d = sectionDef(sec.id)
               const av = sectionAvailability(s, product, sec.id)
               const I = sectionIcon(sec.id)
@@ -137,8 +141,8 @@ export function SectionsCard({
                     ) : null}
                   </div>
                   <InlineStack gap="050" wrap={false}>
-                    <Button variant="tertiary" size="micro" icon={ArrowUp} accessibilityLabel="Move up" disabled={i === 0} onClick={() => onChange(moveSection(sections, sec.id, -1))} />
-                    <Button variant="tertiary" size="micro" icon={ArrowDown} accessibilityLabel="Move down" disabled={i === sections.length - 1} onClick={() => onChange(moveSection(sections, sec.id, 1))} />
+                    <Button variant="tertiary" size="micro" icon={ArrowUp} accessibilityLabel="Move up" disabled={!canMoveSection(sections, sec.id, -1)} onClick={() => onChange(moveSection(sections, sec.id, -1))} />
+                    <Button variant="tertiary" size="micro" icon={ArrowDown} accessibilityLabel="Move down" disabled={!canMoveSection(sections, sec.id, 1)} onClick={() => onChange(moveSection(sections, sec.id, 1))} />
                     <Button variant="tertiary" size="micro" icon={Settings2} accessibilityLabel={`Edit ${d.name}`} onClick={() => setEditing(sec.id)} />
                     <Button variant="tertiary" size="micro" icon={sec.enabled ? EyeOff : Eye} accessibilityLabel={sec.enabled ? 'Hide section' : 'Show section'} onClick={() => onChange(toggleSection(sections, sec.id, !sec.enabled))}>
                       {sec.enabled ? 'Hide' : 'Show'}

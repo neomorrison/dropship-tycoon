@@ -1,6 +1,6 @@
 // Builds AmTable columns for the Fadbook campaigns / ad sets / ads tables from the metric catalog.
 import type { ReactNode } from 'react'
-import { ChartColumn, Copy, Pencil, RotateCcw } from 'lucide-react'
+import { ChartColumn, Copy, Pencil } from 'lucide-react'
 import type { Ad, AdLevel, AdSet, Campaign, GameState } from '../../../core/types'
 import { deliveryLabel, learningProgress } from '../../../sim/ads'
 import { AmNameCell, MetricCell, StatusCell, amFmt, type AmColumn, type AmRowAction, type DeliveryTone } from '../../kit/adsmanager'
@@ -65,7 +65,17 @@ function settingCell(m: MetricDef, row: Row, ctx: ColumnCtx): ReactNode {
   switch (m.id) {
     case 'delivery': {
       const dl = deliveryFor(s, row.level, row.id, d)
-      return <StatusCell label={dl.label} tone={dl.tone} progress={dl.progress} tooltip={dl.detail} />
+      const cell = <StatusCell label={dl.label} tone={dl.tone} progress={dl.progress} tooltip={dl.detail} />
+      // like Ads Manager, a rejected ad offers "Request review" right under its status
+      if (row.level === 'ad' && (row.entity as Ad).review === 'rejected' && dl.label === 'Rejected') {
+        return (
+          <span className="fb-deliv-cell">
+            {cell}
+            <button type="button" className="fb-cell-link" onClick={e => { e.stopPropagation(); ctx.onRequestReview(row.id) }}>Request review</button>
+          </span>
+        )
+      }
+      return cell
     }
     case 'bid': {
       if (row.level === 'ad') return <span className="fb-cell-sub">Using ad set bid strategy</span>
@@ -158,9 +168,6 @@ function nameColumn(ctx: ColumnCtx): AmColumn<Row> {
         { label: 'Edit', icon: Pencil, onClick: () => ctx.onEdit(row, 'edit') },
         { label: 'Duplicate', icon: Copy, onClick: () => ctx.onDuplicate(row) },
       ]
-      if (row.level === 'ad' && (row.entity as Ad).review === 'rejected') {
-        acts.push({ label: 'Request review', icon: RotateCcw, onClick: () => ctx.onRequestReview(row.id) })
-      }
       return acts
     },
   }

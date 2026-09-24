@@ -14,9 +14,11 @@ import { Panel, PageHead, Pill, selectAccount, useAccount, useGame, useTt } from
 import { accountDisplayId, accountStatusText } from '../data'
 import { AccountTabs } from './AccountInfo'
 
-function health(q: number, status: AdAccount['status']): { label: string; tone: 'success' | 'warning' | 'critical'; text: string } {
+function health(q: number, status: AdAccount['status'], failedPayments = 0): { label: string; tone: 'success' | 'warning' | 'critical'; text: string } {
   if (status === 'disabled') return { label: 'Permanently suspended', tone: 'critical', text: 'This account can no longer advertise. Move your campaigns to another ad account.' }
   if (status === 'restricted') return { label: 'Suspended', tone: 'critical', text: 'This account can\'t deliver ads until an appeal succeeds. Repeated suspensions lead to an advertising ban.' }
+  if (status === 'payment_failed') return { label: 'Payment issue', tone: 'critical', text: 'Ads are paused until the outstanding balance is paid. Failed payments also keep your spending limit from rising.' }
+  if (q >= 70 && failedPayments > 0) return { label: 'Fair', tone: 'warning', text: 'No policy issues, but past failed payments keep your spending limit from rising. Keep your payment method funded.' }
   if (q >= 70) return { label: 'Good', tone: 'success', text: 'No significant policy issues. Keep your ads compliant and your payments on time.' }
   if (q >= 50) return { label: 'Fair', tone: 'warning', text: 'Some ads were rejected or payments failed recently. More issues can lead to restrictions.' }
   return { label: 'At risk', tone: 'critical', text: 'Repeated rejections or failed payments put this account at risk of suspension. Avoid risky claims and before/after content.' }
@@ -29,7 +31,7 @@ export default function AccountStatus() {
   const acc = account!
   const st = accountStatusText(acc)
   const banned = acc.status === 'restricted' || acc.status === 'disabled'
-  const h = health(acc.quality, acc.status)
+  const h = health(acc.quality, acc.status, Math.round(acc.failedPayments ?? 0))
   const queue = useGS(g => g.player.queue)
   const activity = useGS(g => g.player.activity)
   const appealQueued = [activity, ...queue].some(a => a?.kind === 'appeal_ad_account' && a.payload?.accountId === acc.id)
@@ -186,7 +188,13 @@ export default function AccountStatus() {
           {bannedUntil != null && bannedUntil > Math.floor(s.time.hour / 24) && (
             <AmNotice tone="error" title="Advertising restricted">You can&apos;t open new self-serve accounts until {formatDate(bannedUntil, 'short')} after repeated suspensions. Agency accounts are still available.</AmNotice>
           )}
-          {ownBlock && !(bannedUntil != null && bannedUntil > Math.floor(s.time.hour / 24)) && <span className="tt-faint tt-small">{ownBlock}</span>}
+          {ownBlock && !(bannedUntil != null && bannedUntil > Math.floor(s.time.hour / 24)) && (
+            <span className="tt-faint tt-small">
+              {accounts.some(a => a.rentedFeePct == null && a.status === 'payment_failed') && !accounts.some(a => a.rentedFeePct == null && a.status === 'active')
+                ? 'You can have one self-serve ad account open at a time. Pay the balance on the account with a failed payment to keep advertising, or rent an agency account.'
+                : 'You can have one self-serve ad account open at a time. You can open a new one if this account gets suspended.'}
+            </span>
+          )}
           <AmTable rows={accounts} columns={cols} rowKey={a => a.id} selectable={false} totals={false} highlightedId={acc.id} maxHeight={320} />
         </div>
       </Panel>

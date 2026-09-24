@@ -163,7 +163,7 @@ function CreativeDetail({ s, c, onCreateAd, onPost }: { s: GameState; c: Creativ
           ))}
         </div>
       </AmCard>
-      <AmCard title={<span className="tt-row" style={{ gap: 6 }}><Lightbulb size={15} /> Creative diagnosis</span>}>
+      <AmCard title={<span className="tt-row" style={{ gap: 6 }}><Lightbulb size={15} /> Creative diagnosis</span>} titleTip="Based on every ad that uses this video, on TikTak and Fadbook.">
         {imps < TIPS_MIN_IMPRESSIONS ? (
           <span className="tt-muted tt-small"><Clock size={12} style={{ verticalAlign: -2 }} /> Available after {amFmt.int(TIPS_MIN_IMPRESSIONS)} impressions ({amFmt.int(imps)} so far).</span>
         ) : tips.length ? (

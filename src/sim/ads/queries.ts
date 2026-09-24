@@ -148,13 +148,41 @@ export function estimateDailyResults(s: GameState, platform: Platform, t: Target
   const clicks = imps * B.ctrLink.avg * (t.type === 'retargeting' ? 1.8 : 1)
   const lpv = clicks * B.lpvRate
   const r = (x: number, lo: number, hi: number): [number, number] => [Math.round(x * lo), Math.round(x * hi)]
+  let linkClicks = r(clicks, 0.55, 1.6)
+  let conversions = hasPixel(s, platform) ? r(lpv, 0.006, 0.03) : null
+  // like the real estimators, lean on the account's own recent results once there's enough data
+  const budget = Math.max(0, dailyBudget)
+  const h = recentPlatformStats(s, platform, 14)
+  const blend = (bench: [number, number], expected: number, w: number): [number, number] => {
+    const lo = Math.round((1 - w) * bench[0] + w * expected * 0.65)
+    return [lo, Math.max(lo, Math.round((1 - w) * bench[1] + w * expected * 1.35))]
+  }
+  if (budget > 0 && h.spend > 0 && h.linkClicks >= 100) linkClicks = blend(linkClicks, budget * h.linkClicks / h.spend, Math.min(1, h.linkClicks / 500))
+  if (conversions && budget > 0 && h.spend > 0 && h.purchases >= 10) conversions = blend(conversions, budget * h.purchases / h.spend, Math.min(1, h.purchases / 50))
   return {
     audienceSize: size,
     definition: audienceDefinition(size),
     reach: r(reach, 0.7, 1.3),
-    linkClicks: r(clicks, 0.55, 1.6),
-    conversions: hasPixel(s, platform) ? r(lpv, 0.006, 0.03) : null,
+    linkClicks,
+    conversions,
   }
+}
+
+/** Spend, link clicks and reported purchases on a platform over the last `days` full days. */
+function recentPlatformStats(s: GameState, platform: Platform, days: number): { spend: number; linkClicks: number; purchases: number } {
+  const today = Math.floor(s.time.hour / 24)
+  const out = { spend: 0, linkClicks: 0, purchases: 0 }
+  for (const ad of s.ads.ads) {
+    if (ad.platform !== platform) continue
+    for (let d = today - days; d < today; d++) {
+      const st = ad.stats[d]
+      if (!st) continue
+      out.spend += st.spend
+      out.linkClicks += st.linkClicks
+      out.purchases += st.purchases
+    }
+  }
+  return out
 }
 
 // ---------------------------------------------------------------------------

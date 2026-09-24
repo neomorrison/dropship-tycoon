@@ -31,6 +31,7 @@ export default function AccountInfo() {
     { label: 'Manual campaigns, custom targeting, Spark Ads', level: 1, on: true, desc: 'Everything you need to test products.' },
     { label: 'Smart+ campaigns', level: MB_GATES.advantage, on: featureUnlocked(s, 'advantage'), desc: 'Automated targeting and creative delivery.' },
     { label: 'Cost cap bidding', level: MB_GATES.costCap, on: featureUnlocked(s, 'costCap'), desc: 'Keep the average cost per conversion near a goal.' },
+    { label: 'Weekly breakdowns', level: MB_GATES.breakdowns, on: featureUnlocked(s, 'breakdowns'), desc: 'Break campaign results down by week in the Campaign table.' },
     { label: 'Automated rules', level: MB_GATES.rules, on: featureUnlocked(s, 'rules'), desc: 'Turn off losers and scale winners every morning.' },
   ]
   const save = () => {

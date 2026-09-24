@@ -22,7 +22,10 @@ export function createDailyPayout(s: GameState, day: number) {
   if (!st.created) return
   const dif = DIFFICULTY[s.meta.difficulty]
   releaseHolds(s, day)
-  if (dif.payoutHolds) spikeCheck(s, day)
+  if (dif.payoutHolds) {
+    spikeCheck(s, day)
+    growthReserveCheck(s, day)
+  }
   const bal = r2(st.pendingBalance)
   if (bal < 0) {
     handleNegative(s, bal)
@@ -61,6 +64,13 @@ export function createDailyPayout(s: GameState, day: number) {
   if (capitalWithheld > 0) notes.push(`${money(capitalWithheld)} Shopifly Capital repayment`)
   let arrive = addBusinessDays(salesDay, dif.payoutDays) + (first ? BENCHMARKS.fees.firstPayoutDelayDays : 0)
   if (first) notes.push('First payout: new-store settlement delay')
+  // payouts settle in order: none overtakes an earlier one still pending (the first payout's
+  // new-store delay holds back the sales days queued behind it)
+  const behind = st.payouts.reduce((m, p) => (p.status === 'pending' && (p.kind ?? 'sales') === 'sales' ? Math.max(m, p.arriveDay) : m), -Infinity)
+  if (behind > arrive) {
+    arrive = behind
+    notes.push('Queued behind an earlier pending payout')
+  }
   const paused = !!(h?.paused && (h.pauseUntilDay ?? 0) >= day)
   if (paused) {
     arrive = Math.max(arrive, addBusinessDays(h!.pauseUntilDay ?? day, 1))
@@ -139,7 +149,7 @@ function releaseHolds(s: GameState, day: number) {
     if (amt > 0) {
       st.payouts.push({
         id: uid(s, 'po'), amount: amt, createdDay: day, arriveDay: addBusinessDays(day, dif.payoutDays), status: 'pending',
-        gross: 0, fees: 0, refunds: 0, adjustments: amt, kind: 'reserve_release', note: 'Chargeback reserve released',
+        gross: 0, fees: 0, refunds: 0, adjustments: amt, kind: 'reserve_release', note: 'Reserve released',
       })
     }
   }
@@ -180,6 +190,59 @@ function spikeCheck(s: GameState, day: number) {
     body: `We noticed an unusual increase in sales volume on ${st.name}. Payouts are paused until ${formatDate(until, 'long')} while our risk team reviews your store.\n\nYou can keep selling. Captured funds will be paid out once the review is complete. Make sure orders are being fulfilled with tracking.`,
   })
   coachTip(s, 'store_payout_hold', 'Payout hold! This is the classic scaling trap: your card keeps paying for ads and suppliers while Shopifly holds your money. Slow your budget increases until the hold lifts and keep enough card limit free.', { app: 'bank', essential: true, cooldownHours: 24 * 14 })
+}
+
+/** Rolling reserve for young stores ramping fast on slow (2–4 week) shipping. */
+export const GROWTH_RESERVE = {
+  /** store age (days) during which the risk team watches volume */
+  maxStoreAgeDays: 180,
+  /** trailing 7-day sales that trigger the review (Normal / Realistic) */
+  weeklySales: { normal: 7_000, realistic: 5_000 } as Record<string, number>,
+  /** share of each payout held back (Normal / Realistic) */
+  pct: { normal: 0.2, realistic: 0.25 } as Record<string, number>,
+  /** days the reserve applies to new payouts; each slice is released 30 days after it was held */
+  windowDays: 45,
+  cooldownDays: 90,
+}
+
+/**
+ * Processor risk practice for new merchants: when a store only weeks old suddenly processes five figures
+ * a week and most orders take 2–4 weeks to arrive, the processor is exposed to every refund/chargeback
+ * until those parcels land. Shopify Payments (Stripe) answers with a rolling reserve, commonly 10–25% of
+ * payouts held 30–90 days (Stripe Docs "Reserves"; Shopify Help "Payout reserves"; widely reported by
+ * dropshippers in 2024–26). It never triggers on 3PL-fulfilled volume or after ~6 months of history.
+ */
+function growthReserveCheck(s: GameState, day: number) {
+  const st = s.store
+  if (st.createdDay == null || day - st.createdDay > GROWTH_RESERVE.maxStoreAgeDays) return
+  if (st.hold && st.hold.reservePct > 0) return
+  const last = s.flags.storeGrowthReserveDay
+  if (typeof last === 'number' && day - last < GROWTH_RESERVE.cooldownDays) return
+  const threshold = GROWTH_RESERVE.weeklySales[s.meta.difficulty] ?? GROWTH_RESERVE.weeklySales.normal
+  let sales7 = 0
+  for (let d = day - 7; d <= day - 1; d++) sales7 += st.analytics.daily[d]?.totalSales ?? 0
+  if (sales7 < threshold) return
+  const recent = st.orders.filter(o => dayOf(o.hour) >= day - 14 && !o.cancelled)
+  if (recent.length < 30) return
+  const slow = recent.filter(o => o.fulfilledBy !== '3pl').length / recent.length
+  if (slow < 0.5) return
+  const pctHeld = GROWTH_RESERVE.pct[s.meta.difficulty] ?? GROWTH_RESERVE.pct.normal
+  const until = day + GROWTH_RESERVE.windowDays - 1
+  s.flags.storeGrowthReserveDay = day
+  const paused = !!st.hold?.paused
+  st.hold = {
+    active: true,
+    reason: `Your store is ${day - st.createdDay} days old, processed ${money(sales7)} in the last 7 days, and most orders take weeks to deliver. Shopifly Payments holds ${Math.round(pctHeld * 100)}% of each payout as a rolling reserve until ${formatDate(until, 'md')}.`,
+    untilDay: until, reservePct: pctHeld, paused, pauseUntilDay: st.hold?.pauseUntilDay,
+    kind: paused ? 'review_reserve' : 'reserve',
+  }
+  mail(s, {
+    from: 'Shopifly Payments', fromEmail: 'risk@shopifly.com', tag: 'shopifly', site: 'shopifly', path: 'finances',
+    subject: 'A rolling reserve has been placed on your payouts',
+    body: `Hi,\n\nCongratulations on your growth. Because ${st.name} is new, is processing a much higher volume (${money(sales7)} in the last 7 days) and most orders take 2 weeks or more to be delivered, we're holding ${Math.round(pctHeld * 100)}% of each payout as a rolling reserve until ${formatDate(until, 'long')}.\n\nEach held amount is released automatically 30 days later. Faster fulfillment (a US warehouse) and a low dispute rate help your account qualify for standard payouts.\n\nShopifly Payments Risk Team`,
+  })
+  notify(s, { kind: 'warning', title: `Payout reserve: ${Math.round(pctHeld * 100)}% held`, body: `Rolling reserve on a fast-growing new store until ${formatDate(until, 'md')}. Each slice comes back after 30 days.`, site: 'shopifly', path: 'finances' })
+  coachTip(s, 'store_growth_reserve', `Shopifly now keeps ${Math.round(pctHeld * 100)}% of every payout for 30 days. That's normal for a new store scaling on slow shipping, but it drains cash exactly while your ad bills grow. Scale slower, keep card limit free, and US stock makes it go away.`, { app: 'bank', essential: true, cooldownHours: 24 * 30 })
 }
 
 registerModalHandler('store_payout_hold', (s, _m, choice) => {
@@ -236,7 +299,7 @@ export function chargebackMonitor(s: GameState, day: number) {
   if (ratio > thresholdRatio && disputes >= 3 && dif.payoutHolds && !(st.hold && st.hold.reservePct > 0)) {
     st.hold = {
       active: true,
-      reason: `Dispute rate ${pct(ratio)} over the last 30 days (above ${pct(thresholdRatio)}). A 25% reserve is held from each payout for 30 days.`,
+      reason: `Your 30-day dispute rate rose to ${pct(ratio)} on ${formatDate(day, 'md')} (above ${pct(thresholdRatio)}). A 25% reserve is held from each payout for 30 days.`,
       untilDay: day + 30, reservePct: 0.25, paused: st.hold?.paused, pauseUntilDay: st.hold?.pauseUntilDay,
       kind: st.hold?.paused ? 'review_reserve' : 'reserve',
     }

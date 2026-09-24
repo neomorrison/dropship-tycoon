@@ -34,7 +34,7 @@ export interface FloatingProps {
   passive?: boolean
 }
 
-interface Pos { top: number; left: number; placement: FloatingPlacement }
+interface Pos { top: number; left: number; placement: FloatingPlacement; maxHeight?: number }
 
 const MARGIN = 8
 
@@ -48,21 +48,34 @@ function compute(anchor: DOMRect, el: { width: number; height: number }, placeme
   if (side === 'right' && anchor.right + offset + el.width > vw - MARGIN && anchor.left - offset - el.width > MARGIN) side = 'left'
   else if (side === 'left' && anchor.left - offset - el.width < MARGIN) side = 'right'
 
+  // taller than the room on both sides: take the roomier side and scroll inside it instead of
+  // clamping the layer on top of its own anchor
+  let maxHeight: number | undefined
+  if (side === 'bottom' || side === 'top') {
+    const below = vh - MARGIN - (anchor.bottom + offset)
+    const above = anchor.top - offset - MARGIN
+    if (el.height > below && el.height > above) {
+      side = below >= above ? 'bottom' : 'top'
+      maxHeight = Math.max(80, Math.floor(side === 'bottom' ? below : above))
+    }
+  }
+  const h = maxHeight != null ? Math.min(el.height, maxHeight) : el.height
+
   let top = 0
   let left = 0
   if (side === 'bottom' || side === 'top') {
-    top = side === 'bottom' ? anchor.bottom + offset : anchor.top - offset - el.height
+    top = side === 'bottom' ? anchor.bottom + offset : anchor.top - offset - h
     if (align === 'start') left = anchor.left
     else if (align === 'end') left = anchor.right - el.width
     else left = anchor.left + anchor.width / 2 - el.width / 2
   } else {
     left = side === 'right' ? anchor.right + offset : anchor.left - offset - el.width
     if (align === 'start') top = anchor.top
-    else top = anchor.top + anchor.height / 2 - el.height / 2
+    else top = anchor.top + anchor.height / 2 - h / 2
   }
   left = Math.max(MARGIN, Math.min(left, vw - el.width - MARGIN))
-  top = Math.max(MARGIN, Math.min(top, vh - el.height - MARGIN))
-  return { top, left, placement: (align ? `${side}-${align}` : side) as FloatingPlacement }
+  top = Math.max(MARGIN, Math.min(top, vh - h - MARGIN))
+  return { top, left, placement: (align ? `${side}-${align}` : side) as FloatingPlacement, maxHeight }
 }
 
 /** Low-level positioned layer. Kits build Popover / Menu / Tooltip on top of this. */
@@ -82,7 +95,8 @@ export function Floating({
     if (!a || !el) return
     const r = a.getBoundingClientRect()
     if (matchWidth) setMinW(r.width)
-    setPos(compute(r, { width: el.offsetWidth, height: el.offsetHeight }, placement, offset))
+    // natural height (scrollHeight), so a height cap from a previous pass doesn't feed back into the next
+    setPos(compute(r, { width: el.offsetWidth, height: Math.max(el.offsetHeight, el.scrollHeight) }, placement, offset))
   }, [anchor, placement, offset, matchWidth])
 
   useLayoutEffect(() => {
@@ -148,6 +162,8 @@ export function Floating({
         left: pos?.left ?? -9999,
         zIndex,
         minWidth: minW,
+        maxHeight: pos?.maxHeight,
+        overflowY: pos?.maxHeight != null ? 'auto' : undefined,
         // opacity (not visibility) while measuring, so autoFocus inside the layer still works
         opacity: pos ? undefined : 0,
         pointerEvents: pos ? undefined : 'none',

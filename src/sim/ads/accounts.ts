@@ -203,6 +203,8 @@ function maybeRaiseSpendLimit(s: GameState, acc: AdAccount) {
 // Bans
 // ---------------------------------------------------------------------------
 const RISKY_HOOKS = new Set(['before_after', 'shock_stat', 'controversial'])
+/** Daily restriction probability of a clean, aged account before difficulty/risk multipliers. */
+const BASE_BAN_RISK = 0.00045
 
 interface RiskFactors { p: number; claim: number; chargebackRatio: number; minHonesty: number; dominant: 'claims' | 'feedback' | 'payment' | 'quality' | 'new' | 'spend' }
 
@@ -237,16 +239,22 @@ export function accountBanRisk(s: GameState, acc: AdAccount): RiskFactors {
 
   const ageDays = day - acc.createdDay
   const jump = acc.budgetJumpDay != null && day - acc.budgetJumpDay <= 3
+  // Bans should mostly FOLLOW risky behavior. A clean, aged account in good standing sits on a small
+  // baseline (≈3–5% over 150 days on Normal, ≈6–7% on Realistic: Meta's automated integrity systems do
+  // restrict innocent accounts, but most practitioner ban reports trace back to claims, feedback score,
+  // payment failures, brand-new business managers or sudden spend spikes). Risk factors are strong and
+  // convex so risky play is punished about as hard as before (health/before-after claims on a trap
+  // product ≈ 30%+ over 150 days).
   const f = {
-    age: ageDays < 14 ? 2.5 : 1,
-    claims: 1 + 4 * claim,
-    jump: jump ? 2 : 1,
-    feedback: (chargebackRatio > 0.01 ? 3 : 1) * (minHonesty < 0.6 ? 2 : 1),
-    quality: acc.quality < 40 ? 2 : 1,
-    payment: 1 + 0.5 * Math.min(4, acc.failedPayments ?? 0),
+    age: ageDays < 14 ? 3 : ageDays < 30 ? 1.5 : 1,
+    claims: 1 + 20 * Math.pow(claim, 1.5),
+    jump: jump ? 4 : 1,
+    feedback: (chargebackRatio > 0.01 ? 5 : chargebackRatio > 0.0075 ? 2 : 1) * (minHonesty < 0.6 ? 3 : 1),
+    quality: acc.quality < 40 ? 3 : acc.quality < 60 ? 1.4 : acc.quality >= 80 ? 0.8 : 1,
+    payment: 1 + 0.75 * Math.min(4, acc.failedPayments ?? 0),
     rented: acc.rentedFeePct != null ? 0.4 : 1,
   }
-  const p = 0.0015 * D.banRiskMult * f.age * f.claims * f.jump * f.feedback * f.quality * f.payment * f.rented
+  const p = BASE_BAN_RISK * D.banRiskMult * f.age * f.claims * f.jump * f.feedback * f.quality * f.payment * f.rented
   const ranked: [RiskFactors['dominant'], number][] = [
     ['claims', f.claims], ['feedback', f.feedback], ['payment', f.payment], ['quality', f.quality], ['new', f.age], ['spend', f.jump],
   ]

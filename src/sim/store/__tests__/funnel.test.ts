@@ -20,9 +20,12 @@ const SESSIONS_PER_DAY = 1000
 const DAYS = 5 // ≈ 5,000 sessions
 
 describe('conversion model (winner product)', () => {
-  it('naive supplier-copy page converts ~0.4–1.2% over ~5,000 sessions', () => {
+  it('naive supplier-copy page converts ~0.4–1.4% over ~5,000 sessions', () => {
     // four independent stores × ~5,000 sessions: each run is a ~5k-session sample (±13% binomial noise);
-    // the pooled rate pins the model's mean
+    // the pooled rate pins the model's mean.
+    // Bound was 1.2% while the import default priced at 2× cogs ("too cheap to trust", r < 0.45). The
+    // DSerz-style default is now 2× landed cost, which on this WINNER lands at ~0.73× perceived value, so the
+    // naive page sits at ~1.3%: still below the 1.4% Shopify average (Littledata) and ~3× under a great page.
     let sessions = 0
     let converted = 0
     for (const seed of [15838, 104729, 7, 2026]) {
@@ -31,7 +34,7 @@ describe('conversion model (winner product)', () => {
       const p = s.store.products.find(x => x.id === id)!
       const expected = conversionParts(s, p, NOVICE, { noise: false }).cvr
       expect(expected).toBeGreaterThan(0.004)
-      expect(expected).toBeLessThan(0.012)
+      expect(expected).toBeLessThan(0.014)
       const from = dayOf(s.time.hour)
       runHours(s, DAYS * 24, h => adPackets(id, SESSIONS_PER_DAY, h, NOVICE.intent, NOVICE.messageMatch))
       const r = storeRange(s, { from, to: dayOf(s.time.hour) })
@@ -39,13 +42,13 @@ describe('conversion model (winner product)', () => {
       expect(r.sessions).toBeLessThan(5500)
       const cvr = r.converted / r.sessions
       expect(cvr).toBeGreaterThan(0.004)
-      expect(cvr).toBeLessThan(0.016)
+      expect(cvr).toBeLessThan(0.018)
       sessions += r.sessions
       converted += r.converted
     }
     const pooled = converted / sessions
     expect(pooled).toBeGreaterThan(0.004)
-    expect(pooled).toBeLessThan(0.012)
+    expect(pooled).toBeLessThan(0.014)
   })
 
   it('great page converts ~2.5–5% over ~5,000 sessions', () => {
@@ -75,7 +78,9 @@ describe('conversion model (winner product)', () => {
     const same = { intent: 1, messageMatch: 1 }
     const naive = conversionParts(a, a.store.products.find(p => p.id === naiveId)!, same, { noise: false }).cvr
     const great = conversionParts(b, b.store.products.find(p => p.id === greatId)!, same, { noise: false }).cvr
-    expect(great / naive).toBeGreaterThan(1.6)
+    // (was 1.6 while the naive fixture sat at a "too cheap to trust" 2× cogs price; the great page is
+    // priced ~20% higher than the new 2× landed default, which costs it a little absolute-price CVR)
+    expect(great / naive).toBeGreaterThan(1.5)
   })
 })
 

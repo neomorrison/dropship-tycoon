@@ -5,7 +5,7 @@ import { Check, ChevronRight, Lock, MapPin, Menu, Search, ShoppingCart } from 'l
 import type { SiteProps } from '../types'
 import type { GameState, GearSlot } from '../../../core/types'
 import { gearImage } from '../../../core/assets'
-import { dayOf, formatDate } from '../../../core/time'
+import { dayOf, formatDate, yearOf } from '../../../core/time'
 import { GEAR, GEAR_SLOTS, gearDef, type GearDef } from '../../../data/gear'
 import { buyGear, computerProductivity, equipGear, filmTimeMult, selfShotQuality, unequipGear } from '../../../sim/life'
 import { cardAvailable } from '../../../core/money'
@@ -116,7 +116,7 @@ export default function Amazin({ path, navigate, compact }: SiteProps) {
       <main className="az-main">{body}</main>
       <footer className="az-footer">
         <button onClick={e => (e.currentTarget.closest('.sh-tabview') as HTMLElement | null)?.scrollTo({ top: 0, behavior: 'smooth' })}>Back to top</button>
-        <div>Conditions of Use · Privacy Notice · © 1996–2026, Amazin.com, Inc. or its affiliates</div>
+        <div>Conditions of Use · Privacy Notice · © 1996–{yearOf(todayOf(s))}, Amazin.com, Inc. or its affiliates</div>
       </footer>
     </div>
   )
@@ -147,7 +147,7 @@ function HomePage({ s, navigate }: { s: GameState; navigate: (p: string) => void
                 {items.slice(0, 4).map(g => (
                   <button key={g.id} onClick={() => navigate(`item/${g.id}`)}>
                     <GearPhoto g={g} />
-                    <span>{g.name.split(' ').slice(0, 4).join(' ')}</span>
+                    <span>{shortName(g.name)}</span>
                   </button>
                 ))}
               </div>
@@ -212,6 +212,13 @@ function Results({ s, navigate, title, items }: { s: GameState; navigate: (p: st
   )
 }
 
+/** "Pear Phone 17 Pro, 256 GB" → "Pear Phone 17 Pro" (tile captions) */
+function shortName(name: string) {
+  const head = name.split(/,| \(| with | \+ /)[0].trim()
+  const words = head.split(/\s+/)
+  return words.length > 5 ? `${words.slice(0, 5).join(' ')}…` : head
+}
+
 function bestSeller(g: GearDef) {
   const inSlot = forSale.filter(x => x.slot === g.slot)
   return inSlot.length > 1 && inSlot.every(x => x.reviews <= g.reviews)
@@ -228,7 +235,7 @@ function ProductPage({ s, g, navigate, setFlash }: { s: GameState; g: GearDef; n
   const owned = s.gear.owned.includes(g.id)
   const equipped = s.gear.equipped[g.slot] === g.id
   const cur = s.gear.equipped[g.slot] ? gearDef(s.gear.equipped[g.slot] as string) : undefined
-  const [pay, setPay] = useState<'bank' | 'card'>(s.finance.cash >= g.price ? 'bank' : 'card')
+  const [pay, setPay] = useState<'bank' | 'card'>(() => (s.finance.cash >= g.price || safe(() => cardAvailable(s), 0) < g.price ? 'bank' : 'card'))
   const [confirm, setConfirm] = useState(false)
   const cardLeft = safe(() => cardAvailable(s), 0)
   const canBank = s.finance.cash >= g.price
@@ -310,8 +317,10 @@ function ProductPage({ s, g, navigate, setFlash }: { s: GameState; g: GearDef; n
                   <span>Chaise Sapphire card<small>{usd(cardLeft)} available · {(s.finance.card.apr * 100).toFixed(2)}% APR</small></span>
                 </label>
               </fieldset>
-              {!canBank && !canCard && <p className="az-err">Neither account can cover {usd(g.price)}.</p>}
-              <button className="az-btn is-yellow" disabled={!canBank && !canCard} onClick={() => setConfirm(true)}>Buy Now</button>
+              {!canBank && !canCard ? <p className="az-err">Neither account can cover {usd(g.price)}.</p>
+                : pay === 'bank' && !canBank ? <p className="az-err">Your checking balance can't cover {usd(g.price)}. Choose your card.</p>
+                  : pay === 'card' && !canCard ? <p className="az-err">Your card doesn't have {usd(g.price)} of available credit. Choose checking.</p> : null}
+              <button className="az-btn is-yellow" disabled={pay === 'bank' ? !canBank : !canCard} onClick={() => setConfirm(true)}>Buy Now</button>
               <p className="az-secure"><Lock size={12} /> Secure transaction</p>
               <div className="az-sold"><span>Ships from</span><b>Amazin.com</b><span>Sold by</span><b>{g.brand} Official</b><span>Returns</span><b>30-day refund</b></div>
             </>

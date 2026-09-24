@@ -279,7 +279,8 @@ const SYNTHS: Record<SfxName, (c: AudioContext, t: number) => void> = {
 }
 
 const lastPlayed: Partial<Record<SfxName, number>> = {}
-const MIN_GAP_MS: Partial<Record<SfxName, number>> = { chaChing: 350, fryer: 900, click: 40 }
+// at 4× a store books sales every ~0.3 s: one cha-ching per sales toast update is plenty
+const MIN_GAP_MS: Partial<Record<SfxName, number>> = { chaChing: 900, ping: 400, error: 400, fryer: 900, click: 40 }
 
 export function playSfx(name: SfxName) {
   if (!unlocked) return

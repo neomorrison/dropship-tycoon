@@ -5,6 +5,7 @@ import { useMemo, useState, type DragEvent } from 'react'
 import { ChevronLeft, ChevronRight, ImagePlus, Star, Trash2 } from 'lucide-react'
 import type { Creative, MediaItem, StoreProduct } from '../../../../core/types'
 import { openSite } from '../../../../core/ui'
+import { productImage } from '../../../../core/assets'
 import { Badge, BlockStack, Button, Card, Checkbox, EmptyState, InlineStack, Modal, Tabs, Text, TextField } from '../../../kit/polaris'
 import { MediaImage, MEDIA_KIND_LABEL, SUPPLIER_VARIANTS, SUPPLIER_VARIANT_LABELS } from '../../storefront'
 
@@ -23,7 +24,8 @@ const PRODUCER_LABEL: Record<Creative['producer'], string> = {
 /** Everything that can be added to a product's gallery. */
 export function mediaLibrary(p: StoreProduct, creatives: Creative[], supplierAlt: string): MediaSource[] {
   const out: MediaSource[] = []
-  const src = p.media.find(m => m.kind === 'supplier')?.src ?? creatives[0]?.thumb ?? ''
+  // the supplier gallery is always the catalog photo (even after the player removed every supplier shot)
+  const src = p.media.find(m => m.kind === 'supplier' && m.src)?.src || productImage(p.catalogId)
   for (let v = 0; v < SUPPLIER_VARIANTS; v++) {
     out.push({
       key: `sup-${v}`,
@@ -161,7 +163,9 @@ function MediaDetail({ media, index, onClose, onChange, onIndex }: { media: Medi
 
 export function MediaCard({ media, onChange, product, creatives, supplierAlt }: { media: MediaItem[]; onChange: (m: MediaItem[]) => void; product: StoreProduct; creatives: Creative[]; supplierAlt: string }) {
   const [pickerOpen, setPickerOpen] = useState(false)
-  const [sel, setSel] = useState<string[]>([])
+  const [selState, setSel] = useState<string[]>([])
+  // a discard or save can replace the gallery under a selection: only count tiles that still exist
+  const sel = useMemo(() => selState.filter(id => media.some(m => m.id === id)), [selState, media])
   const [detail, setDetail] = useState<number | null>(null)
   const [drag, setDrag] = useState<number | null>(null)
   const [over, setOver] = useState<number | null>(null)

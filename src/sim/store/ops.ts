@@ -356,6 +356,7 @@ export function refundOrder(s: GameState, orderId: number, amount?: number): boo
   const amt = r2(clamp(amount ?? max, 0, max))
   if (amt <= 0) return false
   o.refunded = r2(o.refunded + amt)
+  o.refundedHour = s.time.hour
   o.financial = o.refunded >= o.total - 0.01 ? 'refunded' : 'partially_refunded'
   st.pendingBalance -= amt
   const bb = (st.balanceBreakdown ??= { gross: 0, fees: 0, refunds: 0, adjustments: 0 })

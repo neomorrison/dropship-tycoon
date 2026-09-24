@@ -17,7 +17,7 @@ import { grantXp } from '../life'
 import { publicListing } from '../market'
 import { effectivePromise, gradePage, realDeliveryWindow } from './grade'
 import { policyTemplate, type PolicyKind } from './templates'
-import { defOf, findProduct, fulfillment, hasApp, installedApp, r2, roundTo99, slugify, today } from './util'
+import { defOf, findProduct, fulfillment, hasApp, installedApp, r2, slugify, today } from './util'
 
 // ---------------------------------------------------------------------------
 // Grading cache
@@ -232,6 +232,11 @@ export function publishTheme(s: GameState, id: string): boolean {
 // ---------------------------------------------------------------------------
 // Apps
 // ---------------------------------------------------------------------------
+/** False once the store has used this app's free trial (Shopify apps don't restart trials on reinstall). */
+export function appTrialAvailable(s: GameState, appId: string): boolean {
+  return !(s.store.appTrialsUsed ?? []).includes(appId)
+}
+
 export function installApp(s: GameState, appId: string, planIdx = 0): boolean {
   const d = appDef(appId)
   const st = s.store
@@ -242,6 +247,7 @@ export function installApp(s: GameState, appId: string, planIdx = 0): boolean {
   const existing = installedApp(s, appId)
   if (existing && existing.planIdx === idx) return true
   const ref = `app:${appId}`
+  let trialGiven = 0
   if (appId === 'klavio') {
     // Klavio is priced by contacts, not by the plan the player picks
     const price = klavioPrice(st.emailSubscribers)
@@ -249,12 +255,16 @@ export function installApp(s: GameState, appId: string, planIdx = 0): boolean {
     if (!existing) st.apps.push({ appId, installedDay: day, planIdx: price > 0 ? 1 : 0, settings: { billed: price } })
   } else {
     if (plan.billing === 'monthly' && plan.price > 0) {
-      const trial = existing ? 0 : plan.trialDays ?? 0
+      const trial = existing || !appTrialAvailable(s, appId) ? 0 : plan.trialDays ?? 0
       if (!trial && !pay(s, plan.price, { category: 'apps', memo: `${d.name}: ${plan.name} plan`, business: true, prefer: 'card' })) {
         notify(s, { kind: 'warning', title: `Couldn't install ${d.name}`, body: `The ${money(plan.price)}/month charge was declined.`, site: 'bank', path: '' })
         return false
       }
       bill(s, ref, `${d.name} (${plan.name})`, plan.price, 'monthly', day + (trial || 30))
+      if (trial) {
+        trialGiven = trial
+        ;(st.appTrialsUsed ??= []).push(appId)
+      }
     } else removeBillByRef(s, ref)
     if (existing) existing.planIdx = idx
     else st.apps.push({ appId, installedDay: day, planIdx: idx })
@@ -264,7 +274,7 @@ export function installApp(s: GameState, appId: string, planIdx = 0): boolean {
   if (appId === 'klarno' && !existing) st.payments.bnpl = true
   regradeAll(s)
   if (!existing) {
-    const trial = plan.billing === 'monthly' && plan.price > 0 && plan.trialDays ? ` Free for ${plan.trialDays} days, then ${money(plan.price)}/month.` : ''
+    const trial = trialGiven ? ` Free for ${trialGiven} days, then ${money(plan.price)}/month.` : ''
     notify(s, { kind: 'success', title: `${d.name.split(/[:\-–]/)[0].trim()} installed`, body: `${d.effects[0]}${trial}`, site: 'shopifly', path: `apps/${appId}` })
   }
   return true
@@ -320,7 +330,19 @@ function supplierHtml(text: string): string {
     .join('')
 }
 
-/** Import from AliExprez (DSerz-style) → draft with supplier title/description/photos and a naive 2× price. */
+/**
+ * DSerz-style default pricing rule: landed cost (supplier price + duty + shipping) × 2, rounded UP to
+ * .99, never below $9.99. That is the naive "double it" rule import tools ship with (a 2× markup on the
+ * item cost, with the "include shipping cost" box ticked and a minimum price). It covers product cost and
+ * leaves almost nothing for ads (break-even ROAS ≈ 2.2–2.6), so it's still a trap, just a plausible one
+ * instead of pricing a $15 gadget at $6.
+ */
+export function importPrice(landed: number): number {
+  const x = Math.max(9.99, 2 * Math.max(0, landed))
+  return r2(Math.ceil(x - 0.99 - 1e-9) + 0.99)
+}
+
+/** Import from AliExprez (DSerz-style) → draft with supplier title/description/photos and a naive 2× landed-cost price. */
 export function importProduct(s: GameState, catalogId: string): string {
   const st = s.store
   const d = defOf(catalogId)
@@ -339,7 +361,7 @@ export function importProduct(s: GameState, catalogId: string): string {
     title: d.supplierTitle,
     descriptionHtml: supplierHtml(d.supplierDescription),
     media,
-    price: roundTo99(d.cogs * 2),
+    price: importPrice(f.unitCost + f.shipCost),
     compareAtPrice: null,
     costPerItem: r2(f.unitCost + f.shipCost),
     variants: d.variants.map(v => ({ name: v.name, values: [...v.values] })),

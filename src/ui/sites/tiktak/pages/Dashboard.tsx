@@ -43,8 +43,11 @@ export default function Dashboard() {
     : be && metric === 'cpa'
       ? [{ value: be.cpa, label: `Break-even CPA ${amFmt.money(be.cpa)}`, color: CHART_COLORS.critical }]
       : undefined
-  const chartData = series.map((x, i) => {
-    const p = prevSeries[i]
+  // pair each day with the same day of the previous period (the previous period can start before day 0)
+  const span = r.to - r.from + 1
+  const prevByDay = new Map(prevSeries.map(x => [x.day, x]))
+  const chartData = series.map(x => {
+    const p = prevByDay.get(x.day - span)
     return { label: formatDate(x.day, 'md'), value: m.value(x.b), compare: p ? m.value(p.b) : null, compareLabel: p ? formatDate(p.day, 'md') : undefined }
   })
 
@@ -95,7 +98,7 @@ export default function Dashboard() {
                     <button key={id} type="button" className={cx('tt-kpi', on && 'tt-kpi-on')} style={{ ['--tt-kpi-color' as string]: CHART_COLORS.tiktak }} onClick={() => setUi({ dashMetrics: [id] })} aria-pressed={on}>
                       <span className="tt-kpi-label">{md.label}</span>
                       <span className="tt-kpi-value">{md.format(cur)}</span>
-                      <span className="tt-kpi-foot"><Delta cur={cur} prev={pv} invert={md.invert} /><span>vs. previous</span></span>
+                      <span className="tt-kpi-foot"><Delta cur={cur} prev={pv} invert={md.invert} neutral={id === 'cost'} /><span>vs. previous</span></span>
                     </button>
                   )
                 })}
@@ -105,13 +108,13 @@ export default function Dashboard() {
                 title={m.label}
                 titleTip={m.description}
                 value={m.value(data.total) ?? amFmt.dash}
-                comparisonValue={m.value(prevData.total)}
+                comparisonValue={prev.to >= 0 ? m.value(prevData.total) : null}
                 invertDelta={m.invert}
                 format={m.chart}
                 data={chartData}
                 color={CHART_COLORS.tiktak}
                 currentLabel={`${formatDate(r.from, 'md')} – ${formatDate(r.to, 'md')}`}
-                compareLabel={`${formatDate(prev.from, 'md')} – ${formatDate(prev.to, 'md')}`}
+                compareLabel={prev.to >= 0 ? `${formatDate(Math.max(0, prev.from), 'md')} – ${formatDate(prev.to, 'md')}` : undefined}
                 referenceLines={refLines}
                 height={compact ? 180 : 230}
                 emptyText="No data for this date range yet."
@@ -139,7 +142,7 @@ export default function Dashboard() {
           <Panel title="Account" actions={<Pill tone={st.tone === 'success' ? 'success' : st.tone === 'info' ? 'info' : 'critical'} dot>{st.label}</Pill>}>
             <div className="tt-col" style={{ gap: 12 }}>
               <div className="tt-grid-half" style={{ gap: 10 }}>
-                <div className="tt-kpi tt-kpi-static"><span className="tt-kpi-label">Today&apos;s cost</span><span className="tt-kpi-value">{amFmt.money(todayData.total.stats.spend)}</span><span className="tt-kpi-foot">{amFmt.int(todayData.total.conv)} conversions</span></div>
+                <div className="tt-kpi tt-kpi-static"><span className="tt-kpi-label">Today&apos;s cost</span><span className="tt-kpi-value">{amFmt.money(todayData.total.stats.spend)}</span><span className="tt-kpi-foot">{amFmt.int(todayData.total.conv)} conversion{todayData.total.conv === 1 ? '' : 's'}</span></div>
                 <div className="tt-kpi tt-kpi-static"><span className="tt-kpi-label">Daily spending limit</span><span className="tt-kpi-value">{Number.isFinite(limit) ? amFmt.money0(limit) : 'No limit'}</span><span className="tt-kpi-foot">Account level</span></div>
               </div>
               <div className="tt-col" style={{ gap: 6 }}>
@@ -176,7 +179,7 @@ export default function Dashboard() {
             )}
           </Panel>
 
-          <Panel title="Ad review" actions={review.length > 0 ? <AmButton size="sm" variant="link" onClick={() => { setUi({ level: 'ad', statusFilter: 'all_but_deleted' }); navigate('campaign/ad') }}>Manage ads</AmButton> : undefined}>
+          <Panel title="Ad review" actions={review.length > 0 ? <AmButton size="sm" variant="link" onClick={() => { setUi({ level: 'ad', statusFilter: review.some(a => a.review === 'rejected') ? 'rejected' : 'in_review', search: '', selected: { campaign: [], adset: [], ad: [] } }); navigate('campaign/ad') }}>Manage ads</AmButton> : undefined}>
             {review.length === 0 ? (
               <span className="tt-muted tt-small">No ads are in review or rejected.</span>
             ) : (

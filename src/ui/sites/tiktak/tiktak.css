@@ -71,7 +71,11 @@
 .tt-notif-title { font-size: 13px; font-weight: 600; }
 .tt-notif-text { font-size: 12px; color: var(--am-text-2); line-height: 1.35; }
 .tt-notif-time { font-size: 11px; color: var(--am-text-3); }
-.tt-notif-unread .tt-notif-title::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: #fe2c55; vertical-align: middle; }
+.tt-notif { position: relative; }
+.tt-notif-unread { background: #f3fbfb; }
+.tt-notif-unread:hover { background: #e9f7f7; }
+.tt-notif-unread::after { content: ''; position: absolute; top: 15px; right: 12px; width: 6px; height: 6px; border-radius: 50%; background: #fe2c55; }
+.tt-notif-unread .tt-notif-body { padding-right: 12px; }
 .tt-notif-empty { padding: 28px 16px; text-align: center; color: var(--am-text-3); font-size: 13px; }
 
 /* ---- Main scroll area ---- */
@@ -136,6 +140,7 @@
 .tt-delta-up { color: #00a36c; }
 .tt-delta-down { color: #e0294a; }
 .tt-delta-flat { color: var(--am-text-3); }
+.tt-delta-neutral { color: var(--am-text-2); }
 
 /* ---- Grid layouts ---- */
 .tt-grid2 { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); gap: 16px; align-items: start; }
@@ -208,6 +213,10 @@
 .tt-post-stat { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; min-width: 0; }
 .tt-post-stat b { display: inline-flex; align-items: center; gap: 3px; font-size: 13px; font-variant-numeric: tabular-nums; }
 .tt-post-stat span { font-size: 10.5px; color: var(--am-text-3); }
+.tt-pending { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.tt-pending li { display: flex; align-items: center; gap: 6px; font-size: 12.5px; min-width: 0; }
+.tt-pending li svg { flex: none; }
+.tt-pending-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 
 /* ---- Create flow ---- */
 .tt-create { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--am-bg); }
@@ -220,6 +229,28 @@
 .tt-create-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .tt-create-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; max-width: 1180px; margin: 0 auto; padding: 20px 24px 32px; align-items: start; }
 .tt-create-form { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+/* left outline (TikTok's campaign / ad group / ad navigator) on wide screens; the header stepper takes over below */
+.tt-create-grid-outline { grid-template-columns: 220px minmax(0, 1fr) 320px; max-width: 1400px; }
+.tt-outline { position: sticky; top: 20px; display: flex; flex-direction: column; gap: 2px; padding: 8px; background: #fff; border: 1px solid var(--am-divider-soft); border-radius: 6px; }
+.tt-outline-item {
+  position: relative; display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 8px 8px; border: 0; border-radius: 4px;
+  background: transparent; font-family: var(--am-font); text-align: left; color: var(--am-text); cursor: pointer;
+}
+button.tt-outline-item:hover { background: var(--am-hover); }
+.tt-outline-fixed { cursor: default; color: var(--am-text-2); }
+.tt-outline-l1 { padding-left: 20px; }
+.tt-outline-l2 { padding-left: 32px; }
+.tt-outline-on { background: var(--am-primary-soft); }
+button.tt-outline-on:hover { background: var(--am-primary-soft); }
+.tt-outline-on::before { content: ''; position: absolute; left: 0; top: 6px; bottom: 6px; width: 3px; border-radius: 2px; background: var(--am-primary); }
+.tt-outline-icon { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 4px; background: #f1f1f2; color: var(--am-text-2); }
+.tt-outline-on .tt-outline-icon { background: #fff; color: var(--am-primary); }
+.tt-outline-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.tt-outline-kind { font-size: 11px; color: var(--am-text-3); line-height: 1.3; }
+.tt-outline-name { font-size: 12.5px; font-weight: 600; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tt-outline-ok { flex: none; color: #00a37a; }
+.tt-outline-bad { flex: none; color: #c4163a; }
+.tt-outline-err .tt-outline-name { color: #c4163a; }
 .tt-create-side { position: sticky; top: 20px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .tt-create-foot {
   flex: none; display: flex; align-items: center; gap: 10px; padding: 12px 24px; background: #fff; border-top: 1px solid var(--am-divider);
@@ -357,6 +388,7 @@
 .tt-compact .tt-setup-form { padding: 20px 16px; }
 .tt-compact .tt-lib { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .tt-compact .tt-posts { grid-template-columns: minmax(0, 1fr); }
+.tt-compact .tt-pending li { flex-wrap: wrap; }
 .tt-compact .tt-kv { grid-template-columns: minmax(0, 1fr); gap: 2px 0; }
 .tt-compact .tt-kv dd { margin-bottom: 8px; }
 .tt-compact .tt-filterbar { padding: 10px 12px; }
@@ -370,8 +402,12 @@
 .tt-menu-sheet-group { padding: 12px 16px 6px; font-size: 11.5px; font-weight: 700; color: var(--am-text-3); text-transform: uppercase; letter-spacing: 0.5px; }
 .tt-menu-sheet-sub { padding-left: 28px; font-size: 14px; }
 
+@media (min-width: 1101px) {
+  .tt-create-head .tt-create-steps > * { display: none; }
+}
 @media (max-width: 1100px) {
   .tt-create-grid { grid-template-columns: minmax(0, 1fr) 280px; }
+  .tt-outline { display: none; }
 }
 @media (max-width: 900px) {
   .tt-grid2 { grid-template-columns: minmax(0, 1fr); }
@@ -379,3 +415,7 @@
   .tt-create-side { position: static; }
   .tt-nav-items { gap: 16px; }
 }
+
+/* (column-menu and empty-table fixes now live in the adsmanager kit) */
+/* white-background product thumbnails need an edge in dense rows */
+.tt-app .am-table img.kx-img-el { background: #fff; outline: 1px solid rgba(22, 24, 35, 0.1); outline-offset: -1px; }

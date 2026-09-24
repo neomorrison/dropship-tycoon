@@ -96,6 +96,27 @@ const CONDITIONS: Record<string, Cond> = {
   car_breaks: () => ({}),
 }
 
+/**
+ * A month after a copycat wave, most of the copycat stores quit: they tested your angle, couldn't beat
+ * your cost per purchase and moved on (the usual fate of spy-tool clones; practitioner estimates put
+ * copycat test budgets at a few hundred dollars). The more you out-executed them, the more give up.
+ */
+function copycatsShakeOut(s: GameState, e: ActiveEvent) {
+  const id = dataStr(e, 'catalogId')
+  const m = s.catalog.market[id]
+  const added = dataNum(e, 'added', 0)
+  if (!m || added <= 0) return
+  const response = dataStr(e, 'response')
+  const fresh = s.creatives.creatives.filter(c => c.catalogId === id && c.orderedHour >= e.startDay * 24 && c.status !== 'failed').length
+  const quitShare = response === 'refresh' && fresh >= 2 ? 0.7 : response === 'match' ? 0.6 : 0.45
+  const quit = Math.min(m.competitors, Math.round(added * quitShare))
+  if (quit <= 0) return
+  m.competitors -= quit
+  m.saturation = Math.round(saturationOf(m.competitors) * 1000) / 1000
+  const p = findProduct(id)
+  notify(s, { kind: 'info', title: `${quit} copycat stores gave up on ${p?.name ?? 'your product'}`, body: 'They stopped advertising it. The auction should ease a little.', site: 'mineo' })
+}
+
 // ---------------------------------------------------------------------------
 // Firing
 // ---------------------------------------------------------------------------
@@ -183,10 +204,14 @@ const FIRE: Record<string, Fire> = {
     if (!c) return
     startEvent(s, { kind: 'creator_stole_ad', title: `Ad ripped off: ${c.name}`, startDay: day, endDay: day + def.durationDays - 1, data: { creativeId: c.id, creativeName: c.name } })
     const p = findProduct(c.catalogId)
+    // she bought after your first sale of it: don't say "last month" about a two-week-old store
+    const first = s.store.orders.find(o => o.catalogId === c.catalogId)
+    const ago = first ? day - Math.floor(first.hour / 24) : 30
+    const when = ago < 10 ? 'last week' : ago < 25 ? 'a couple of weeks ago' : ago < 60 ? 'last month' : 'a while back'
     mail(s, {
       from: 'Brianna T.', fromEmail: 'bri.t.shops@inboxly.com', tag: 'customer', site: 'studio',
       subject: 'Is someone copying your video??',
-      body: `Hi! I bought the ${p?.name ?? 'product'} from you last month (love it). Just saw the EXACT same video on another store's page, same voiceover and everything, selling it cheaper. Thought you should know!\n\n— Bri`,
+      body: `Hi! I bought the ${p?.name ?? 'product'} from you ${when} (love it). Just saw the EXACT same video on another store's page, same voiceover and everything, selling it cheaper. Thought you should know!\n\n— Bri`,
     })
     notify(s, { kind: 'warning', title: `Another store is running your "${c.name}" video`, body: 'Audiences now see it from two advertisers — it will fatigue faster (≈30%). Plan a refresh.', site: 'studio' })
   },
@@ -436,6 +461,7 @@ function influencerPostTick(s: GameState, e: ActiveEvent, hour: number) {
 /** Cleanup and end-of-life notices for expiring events. */
 export function onEventExpire(s: GameState, e: ActiveEvent): void {
   // payout_review: the store module releases paused payouts itself when pauseUntilDay passes.
+  if (e.kind === 'competitor_copy') copycatsShakeOut(s, e)
   if (e.kind === 'tracking_outage') {
     notify(s, { kind: 'info', title: 'Conversion tracking recovered', body: 'Ads Manager purchase reporting is back to normal (numbers for the affected days may catch up).', site: 'fadbook' })
   }

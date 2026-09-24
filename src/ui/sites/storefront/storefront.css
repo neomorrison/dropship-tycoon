@@ -644,6 +644,8 @@
   transition: transform 0.25s ease, opacity 0.25s ease;
 }
 .st-sticky.is-visible { transform: none; opacity: 1; pointer-events: auto; }
+/* last child of .st-root: the sticky bar portals here so it sticks over the whole page */
+.st-bottom-slot { display: contents; }
 .st-sticky-inner {
   display: flex;
   align-items: center;
@@ -674,11 +676,16 @@
   font: 550 11px/18px Inter, system-ui, sans-serif;
   letter-spacing: 0;
   padding: 0 6px;
-  border-radius: 0 0 4px 0;
+  /* a tab on top of the outline (like the customizer), so it never covers the block's own text */
+  transform: translateY(-100%);
+  border-radius: 4px 4px 0 0;
+  white-space: nowrap;
   pointer-events: none;
 }
 .st-frame:hover > .st-frame-label, .st-frame.is-selected > .st-frame-label { display: block; }
 .st-frame--info { display: flex; flex-direction: column; }
+/* header / announcement / footer sit at the canvas edges: keep their label inside */
+.st-frame--chrome > .st-frame-label { transform: none; border-radius: 0 0 4px 0; }
 
 /* ---- home / collection / policy ---- */
 .st-hero { position: relative; display: grid; grid-template-columns: 1fr 1fr; min-height: 420px; background: var(--st-surface); }
@@ -772,6 +779,11 @@
 
 /* ---- responsive (container) ---- */
 @container st (max-width: 749px) {
+  /* owner bar on a phone: one row, the admin shortcut drops (the tab bar gets you there) */
+  .st-ownerbar { padding: 6px 10px; }
+  .st-ownerbar-brand { min-width: 0; flex: 1 1 auto; }
+  .st-ownerbar-actions { flex-wrap: nowrap; }
+  .st-ownerbar .st-ownerbar-admin { display: none; }
   .st-header { padding: 10px 12px; grid-template-columns: auto 1fr auto; gap: 4px; }
   .st-header--center { grid-template-columns: 1fr auto 1fr; }
   .st-header .st-header-menu { display: inline-flex; }
@@ -794,7 +806,9 @@
   .st-h2 { font-size: 22px; margin-bottom: 16px; }
   .st-reviews-summary { grid-template-columns: 1fr; gap: 16px; }
   .st-reviews--grid .st-reviews-list { grid-template-columns: 1fr; }
-  .st-benefits-grid, .st-benefits-grid[data-n='3'], .st-benefits-grid[data-n='4'] { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+  .st-benefits-grid, .st-benefits-grid[data-n='4'] { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+  /* three benefits stay on one row instead of 2 + a lone third */
+  .st-benefits-grid[data-n='3'] { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
   .st-how-steps, .st-how-steps[data-n] { grid-template-columns: 1fr; gap: 18px; }
   .st-ugc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .st-founder-card { flex-direction: column; align-items: center; text-align: center; padding: 22px; }

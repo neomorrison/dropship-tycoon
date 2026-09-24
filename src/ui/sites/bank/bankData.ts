@@ -67,7 +67,10 @@ export function alertsFor(s: GameState): BankAlert[] {
   const out: BankAlert[] = []
   const c = cardInfo(s)
   const today = todayOf(s)
-  if (c.frozen) out.push({ tone: 'critical', title: 'Your Sapphire card is frozen', body: `Two late payments froze the card. Pay the past-due amount${c.pastDue ? ` (${usd(c.pastDue)})` : ''} to unfreeze it — ad platforms and suppliers can't charge it until then.`, path: 'card' })
+  if (c.frozen) {
+    const toUnfreeze = Math.max(c.fullRemaining, c.pastDue)
+    out.push({ tone: 'critical', title: 'Your Sapphire card is frozen', body: `Two late payments froze the card. Pay ${toUnfreeze > 0 ? `the full statement balance (${usd(toUnfreeze)})` : 'the past-due amount'} to unfreeze it — ad platforms and suppliers can't charge it until then.`, path: 'card' })
+  }
   else if (c.pastDue > 0) out.push({ tone: 'critical', title: `Card payment past due: ${usd(c.pastDue)}`, body: 'A late payment adds a $35 fee and a 29.99% penalty APR. A second one freezes the card.', path: 'card' })
   if (!c.frozen && c.utilization >= 0.9) out.push({ tone: 'warning', title: `Card ${Math.round(c.utilization * 100)}% used`, body: `Only ${usd(c.available)} of credit left. The next ad-billing or supplier charge may decline.`, path: 'card' })
   for (const b of s.finance.bills) {
@@ -114,7 +117,7 @@ export function cashFlow(s: GameState, days = 14): FlowItem[] {
       out.push({ day: Math.max(today, p.arriveDay), label: 'Shopifly payout (on hold)', detail: p.note ?? 'Held by Shopifly risk review', amount: p.amount, account: 'bank', kind: 'payout', held: true })
       continue
     }
-    if (p.arriveDay < end) out.push({ day: Math.max(today, p.arriveDay), label: 'Shopifly payout', detail: `Sales from ${formatDate(p.createdDay - 1, 'md')}`, amount: p.amount, account: 'bank', kind: 'payout' })
+    if (p.arriveDay < end) out.push({ day: Math.max(today, p.arriveDay), label: 'Shopifly payout', detail: p.kind === 'reserve_release' ? 'Reserve release' : `Sales from ${formatDate(p.createdDay, 'md')}`, amount: p.amount, account: 'bank', kind: 'payout' })
   }
   if (s.store?.created && (s.store.pendingBalance ?? 0) > 0.5 && !s.store.hold?.paused) {
     const arrive = addBusinessDays(today + 1, DIFFICULTY[s.meta.difficulty].payoutDays)

@@ -14,7 +14,6 @@ const PAGE = 20
 export default function HomePage({ navigate }: AxPageProps) {
   const rows = useListings()
   const day = useToday()
-  const hour = useGS(s => s.time.hour)
   const favs = useFavoriteSet()
   const imported = useImported()
   const samples = useSampleStatus()
@@ -60,7 +59,7 @@ export default function HomePage({ navigate }: AxPageProps) {
           </div>
           <div className="ax-welcome-stats">
             <button type="button" onClick={() => navigate('wishlist')}><b>{favs.size}</b><span><Heart size={12} /> Wishlist</span></button>
-            <button type="button" onClick={() => navigate('orders')}><b>{[...samples.values()].filter(v => v === 'shipping').length}</b><span><Package size={12} /> Samples en route</span></button>
+            <button type="button" onClick={() => navigate('orders')}><b>{[...samples.values()].filter(v => v === 'shipping').length}</b><span><Package size={12} /> In transit</span></button>
             <button type="button" onClick={() => navigate('search')}><b>{researched}</b><span><FlaskConical size={12} /> Researched</span></button>
           </div>
           <div className="ax-trending">
@@ -85,7 +84,7 @@ export default function HomePage({ navigate }: AxPageProps) {
           title="SuperDeals" icon={<Zap size={20} fill="currentColor" />}
           extra={<button type="button" className="ax-link" onClick={() => navigate(withQuery('search', { sort: 'orders' }))}>View more <ChevronRight size={14} /></button>}
         >
-          <span className="ax-ends">Ends in <Countdown hoursLeft={24 - hourOfDay(hour)} urgentBelowHours={0} /></span>
+          <DealsCountdown />
         </SectionHead>
         <div className="ax-row">
           {deals.map(r => <ProductCard key={r.p.id} row={r} flags={flags(r.p.id)} onOpen={open} deal />)}
@@ -117,6 +116,12 @@ export default function HomePage({ navigate }: AxPageProps) {
       </section>
     </div>
   )
+}
+
+/** SuperDeals end at midnight. Own component so the clock ticking doesn't re-render the whole home page. */
+function DealsCountdown() {
+  const hoursLeft = useGS(s => 24 - hourOfDay(s.time.hour))
+  return <span className="ax-ends">Ends in <Countdown hoursLeft={hoursLeft} urgentBelowHours={0} /></span>
 }
 
 function Banners({ rows, fresh, navigate }: { rows: Row[]; fresh: Row[]; navigate: (p: string) => void }) {
