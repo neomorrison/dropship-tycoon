@@ -1,0 +1,641 @@
+{
+  "generatedAt": "2026-09-23",
+  "files": {
+    "rooms": [
+      {
+        "path": "assets/rooms/hotspots.json",
+        "bytes": 1872
+      },
+      {
+        "path": "assets/rooms/mcdoodles.webp",
+        "bytes": 61676,
+        "width": 1600,
+        "height": 900
+      },
+      {
+        "path": "assets/rooms/tier0.webp",
+        "bytes": 49826,
+        "width": 1600,
+        "height": 900
+      },
+      {
+        "path": "assets/rooms/tier1.webp",
+        "bytes": 39844,
+        "width": 1600,
+        "height": 900
+      },
+      {
+        "path": "assets/rooms/tier2.webp",
+        "bytes": 36862,
+        "width": 1600,
+        "height": 900
+      },
+      {
+        "path": "assets/rooms/tier3.webp",
+        "bytes": 88242,
+        "width": 1600,
+        "height": 900
+      },
+      {
+        "path": "assets/rooms/tier4.webp",
+        "bytes": 55476,
+        "width": 1600,
+        "height": 900
+      },
+      {
+        "path": "assets/rooms/tier5.webp",
+        "bytes": 62030,
+        "width": 1600,
+        "height": 900
+      },
+      {
+        "path": "assets/rooms/title.webp",
+        "bytes": 58844,
+        "width": 1600,
+        "height": 900
+      }
+    ],
+    "products": [
+      {
+        "path": "assets/products/ab-roller.webp",
+        "bytes": 13176,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/acupressure-mat.webp",
+        "bytes": 42802,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/anti-theft-backpack.webp",
+        "bytes": 28072,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/baby-nail-trimmer.webp",
+        "bytes": 10052,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/blackhead-vacuum.webp",
+        "bytes": 10778,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/bug-zapper-lamp.webp",
+        "bytes": 10902,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/busy-board.webp",
+        "bytes": 35038,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/car-vacuum.webp",
+        "bytes": 13530,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/cat-laser-toy.webp",
+        "bytes": 3700,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/cat-water-fountain.webp",
+        "bytes": 9110,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/claw-clip-set.webp",
+        "bytes": 8320,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/dog-car-hammock.webp",
+        "bytes": 11092,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/dog-lick-mat.webp",
+        "bytes": 21090,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/dog-paw-cleaner.webp",
+        "bytes": 9552,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/drawing-projector.webp",
+        "bytes": 11614,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/galaxy-projector.webp",
+        "bytes": 15312,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/garment-steamer.webp",
+        "bytes": 8500,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/gravity-grinder.webp",
+        "bytes": 10152,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/heated-throw.webp",
+        "bytes": 15896,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/heated-vest.webp",
+        "bytes": 14074,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/heatless-curler.webp",
+        "bytes": 17038,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/herb-keeper.webp",
+        "bytes": 25326,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/ice-ball-maker.webp",
+        "bytes": 18132,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/ice-face-roller.webp",
+        "bytes": 8166,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/jump-starter.webp",
+        "bytes": 16200,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/led-face-mask.webp",
+        "bytes": 12840,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/magnetic-phone-mount.webp",
+        "bytes": 9704,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/magnetic-screen-door.webp",
+        "bytes": 21212,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/magnetic-tiles.webp",
+        "bytes": 20470,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/magsafe-charger-stand.webp",
+        "bytes": 12506,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/milk-frother.webp",
+        "bytes": 10676,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/mini-massage-gun.webp",
+        "bytes": 8028,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/minimalist-wallet.webp",
+        "bytes": 33270,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/moon-lamp.webp",
+        "bytes": 13302,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/motion-cabinet-lights.webp",
+        "bytes": 20306,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/mouth-tape.webp",
+        "bytes": 7252,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/nail-drill-kit.webp",
+        "bytes": 14838,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/neck-massager.webp",
+        "bytes": 18490,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/oil-sprayer.webp",
+        "bytes": 6938,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/open-ear-buds.webp",
+        "bytes": 5734,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/pet-grooming-vacuum.webp",
+        "bytes": 16624,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/pet-hair-roller.webp",
+        "bytes": 16376,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/portable-blender.webp",
+        "bytes": 8904,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/posture-corrector.webp",
+        "bytes": 23960,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/red-light-wand.webp",
+        "bytes": 7200,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/resistance-bands.webp",
+        "bytes": 30504,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/retro-earbuds.webp",
+        "bytes": 28556,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/ring-light.webp",
+        "bytes": 8498,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/scalp-massager.webp",
+        "bytes": 8700,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/scalp-oil-applicator.webp",
+        "bytes": 5914,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/seat-gap-filler.webp",
+        "bytes": 10154,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/self-cleaning-brush.webp",
+        "bytes": 8966,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/smart-jump-rope.webp",
+        "bytes": 13494,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/solar-firefly-lights.webp",
+        "bytes": 14110,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/spin-scrubber.webp",
+        "bytes": 7010,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/sunrise-alarm.webp",
+        "bytes": 11566,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/sunset-lamp.webp",
+        "bytes": 4998,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/teeth-whitening-kit.webp",
+        "bytes": 13244,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/thermal-printer.webp",
+        "bytes": 11018,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/veggie-chopper.webp",
+        "bytes": 14750,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/weighted-eye-mask.webp",
+        "bytes": 8686,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/white-noise-machine.webp",
+        "bytes": 13674,
+        "width": 512,
+        "height": 512
+      },
+      {
+        "path": "assets/products/window-robot.webp",
+        "bytes": 8486,
+        "width": 512,
+        "height": 512
+      }
+    ],
+    "people": [
+      {
+        "path": "assets/people/p01.webp",
+        "bytes": 7402,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "path": "assets/people/p02.webp",
+        "bytes": 4796,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "path": "assets/people/p03.webp",
+        "bytes": 6260,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "path": "assets/people/p04.webp",
+        "bytes": 6988,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "path": "assets/people/p05.webp",
+        "bytes": 4370,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "path": "assets/people/p06.webp",
+        "bytes": 4270,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "path": "assets/people/p07.webp",
+        "bytes": 6450,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "path": "assets/people/p08.webp",
+        "bytes": 4592,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "path": "assets/people/p09.webp",
+        "bytes": 6334,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "path": "assets/people/p10.webp",
+        "bytes": 3578,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "path": "assets/people/p11.webp",
+        "bytes": 4786,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "path": "assets/people/p12.webp",
+        "bytes": 4092,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "path": "assets/people/p13.webp",
+        "bytes": 7676,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "path": "assets/people/p14.webp",
+        "bytes": 5808,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "path": "assets/people/p15.webp",
+        "bytes": 5464,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "path": "assets/people/p16.webp",
+        "bytes": 4358,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "path": "assets/people/p17.webp",
+        "bytes": 5468,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "path": "assets/people/p18.webp",
+        "bytes": 5026,
+        "width": 256,
+        "height": 256
+      }
+    ],
+    "player": [
+      {
+        "path": "assets/player/happy.webp",
+        "bytes": 6796,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "path": "assets/player/neutral.webp",
+        "bytes": 6364,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "path": "assets/player/stressed.webp",
+        "bytes": 6860,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "path": "assets/player/tired.webp",
+        "bytes": 6178,
+        "width": 256,
+        "height": 256
+      }
+    ],
+    "gear": [
+      {
+        "path": "assets/gear/laptop-old.webp",
+        "bytes": 8128,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "path": "assets/gear/laptop-pro.webp",
+        "bytes": 5108,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "path": "assets/gear/lav-mic.webp",
+        "bytes": 4614,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "path": "assets/gear/mirrorless-camera.webp",
+        "bytes": 4944,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "path": "assets/gear/phone-cracked.webp",
+        "bytes": 3298,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "path": "assets/gear/phone-pro.webp",
+        "bytes": 2854,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "path": "assets/gear/ring-light.webp",
+        "bytes": 3500,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "path": "assets/gear/softbox-kit.webp",
+        "bytes": 4142,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "path": "assets/gear/workstation.webp",
+        "bytes": 4026,
+        "width": 256,
+        "height": 256
+      }
+    ],
+    "audio": [
+      {
+        "path": "assets/audio/lofi1.mp3",
+        "bytes": 2949503
+      },
+      {
+        "path": "assets/audio/lofi2.mp3",
+        "bytes": 3664679
+      }
+    ]
+  }
+}
