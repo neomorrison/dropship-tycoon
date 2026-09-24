@@ -7,3 +7,10 @@ scripts/.cache
 .snapshot
 scripts/e2e/tmp
 scripts/e2e/out
+
+# 3D pipeline scratch
+blender/.previews
+blender/.out
+__pycache__
+*.pyc
+*.blend1
