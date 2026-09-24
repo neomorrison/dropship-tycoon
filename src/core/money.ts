@@ -94,6 +94,14 @@ export function payCard(s: GameState, amount: number): number {
   return amt
 }
 
+/** Post a card charge even past the limit (interest, late fees). Used by the finance module. */
+export function chargeCardForced(s: GameState, amount: number, o: Omit<PayOpts, 'prefer' | 'strict'>) {
+  if (!(amount > 0)) return
+  s.finance.card.balance += amount
+  pushLedger(s, 'card', -amount, o)
+  recordPnl(s, amount, o)
+}
+
 /** Value of inventory on hand + in transit at cost. */
 export function inventoryValue(s: GameState): number {
   let v = 0
@@ -104,7 +112,9 @@ export function inventoryValue(s: GameState): number {
 
 export function netWorth(s: GameState): number {
   const pendingPayouts = s.store.payouts.filter(p => p.status !== 'paid').reduce((a, p) => a + p.amount, 0)
+  // chargeback reserves are the merchant's money, held by Shopifly and released after 30 days
+  const reserves = (s.store.reserves ?? []).reduce((a, r) => a + r.amount, 0)
   const loans = s.finance.loans.reduce((a, l) => a + l.remaining, 0)
   const unbilledAds = s.ads.accounts.reduce((a, acc) => a + acc.unbilled, 0)
-  return s.finance.cash - s.finance.card.balance + s.store.pendingBalance + pendingPayouts + inventoryValue(s) - loans - unbilledAds
+  return s.finance.cash - s.finance.card.balance + s.store.pendingBalance + pendingPayouts + reserves + inventoryValue(s) - loans - unbilledAds
 }

@@ -2,12 +2,19 @@
 // STORE MODULE — Shopifly: products & page grading (CRO), funnel & orders,
 // fulfillment, tickets, refunds, chargebacks, payouts, apps, analytics.
 // OWNER: sim-store agent. PUBLIC API; keep every export & signature.
+// Implementation lives in: grade.ts (CRO grader), text.ts (copy analysis),
+// funnel.ts (traffic/CVR/orders), ops.ts (fulfillment/tickets/refunds/disputes),
+// payouts.ts (payouts/holds), setup.ts (store/apps/themes/products), analytics.ts, coach.ts.
 // ============================================================================
-import type {
-  ConversionEvent, Discount, GameState, PageGrade, PlanId, StoreDay, StoreProduct, StoreState,
-  TrafficPacket, TrafficSource,
-} from '../../core/types'
-import type { DateRange } from '../../core/time'
+import type { GameState, StoreState, TrafficSource } from '../../core/types'
+import { binomial, randRange, weightedPick } from '../../core/rng'
+import { BENCHMARKS } from '../../data/benchmarks'
+import { pruneAnalytics } from './analytics'
+import { storeCoachTick } from './coach'
+import { chargebackMonitor, createDailyPayout, settlePayouts } from './payouts'
+import { chargebacksDaily, escalateTickets, orderEventsHour, processFulfillmentQueue, pruneOps, reviewsDaily } from './ops'
+import { planDaily, regradeAll } from './setup'
+import { APP_SIM, hasApp } from './util'
 
 export function createStoreState(): StoreState {
   return {
@@ -23,70 +30,110 @@ export function createStoreState(): StoreState {
     liveVisitors: 0, repeatPipeline: [],
   }
 }
+
+// ---- traffic & conversion (funnel.ts) ----
 /** Organic/direct/email/influencer/viral traffic for this hour. */
-export function storeOrganicTraffic(_s: GameState): TrafficPacket[] { return [] }
+export { storeOrganicTraffic } from './funnel'
 /** Convert traffic → sessions/ATC/checkout/orders; create orders; return per-ad conversions. */
-export function storeProcessTraffic(_s: GameState, _packets: TrafficPacket[]): ConversionEvent[] { return [] }
+export { storeProcessTraffic } from './funnel'
+/** HIDDEN model internals (balance bots/tests only — never show to players). */
+export { conversionParts, priceFactor, absPriceBase } from './funnel'
+
 /** Fulfillment, deliveries, tickets, refunds, chargeback decisions, live visitors. */
-export function storeTickHour(_s: GameState): void {}
-/** Payouts, holds, app billing, review accrual, analytics pruning. */
-export function storeDayRollover(_s: GameState, _day: number): void {}
-
-// ---- setup & settings ----
-export function createStore(_s: GameState, _input: { name: string }): void {}
-export function updateStoreSettings(_s: GameState, _patch: Partial<Pick<StoreState, 'name' | 'theme' | 'policies' | 'payments' | 'shipping'>>): void {}
-export function generatePolicy(_s: GameState, _kind: keyof StoreState['policies']): string { return '' }
-export function buyDomain(_s: GameState, _domain: string): boolean { return false }
-export function changePlan(_s: GameState, _plan: PlanId): void {}
-
-// ---- products ----
-/** Import from AliExprez → draft StoreProduct using supplier title/description/photos. Returns id. */
-export function importProduct(_s: GameState, _catalogId: string): string { return '' }
-/** Patch a product and regrade its page. */
-export function updateProduct(_s: GameState, _id: string, _patch: Partial<StoreProduct>): void {}
-export function setProductStatus(_s: GameState, _id: string, _status: StoreProduct['status']): void {}
-export function deleteProduct(_s: GameState, _id: string): void {}
-/** CRO grader — the heart of page-building skill. Pure. */
-export function gradePage(_s: GameState, _p: StoreProduct): PageGrade {
-  return { score: 50, cvrMult: 1, aovMult: 1, trust: 0.5, loadTime: 2, honesty: 1, factors: [], gradedHour: 0 }
+export function storeTickHour(s: GameState): void {
+  if (!s.store.created) return
+  processFulfillmentQueue(s)
+  orderEventsHour(s)
+  escalateTickets(s)
+  settlePayouts(s)
+  storeCoachTick(s)
+  delete s.store.analytics.hourly[s.time.hour - 73]
 }
-/** Requires a reviews app. Imports supplier reviews (count, min stars). */
-export function importReviews(_s: GameState, _storeProductId: string, _count: number, _minStars: number): boolean { return false }
 
-// ---- apps ----
-export function installApp(_s: GameState, _appId: string, _planIdx?: number): boolean { return false }
-export function uninstallApp(_s: GameState, _appId: string): void {}
+/** Payouts, holds, app billing, review accrual, analytics pruning. */
+export function storeDayRollover(s: GameState, day: number): void {
+  const st = s.store
+  if (!st.created) return
+  planDaily(s, day)
+  scheduleRecoveries(s, day)
+  createDailyPayout(s, day)
+  chargebacksDaily(s, day)
+  chargebackMonitor(s, day)
+  reviewsDaily(s, day)
+  regradeAll(s)
+  st.repeatPipeline = st.repeatPipeline.filter(x => x.day >= day)
+  pruneAnalytics(s, day)
+  pruneOps(s, day)
+}
 
-// ---- discounts ----
-export function upsertDiscount(_s: GameState, _d: Discount): void {}
-export function deleteDiscount(_s: GameState, _id: string): void {}
-
-// ---- orders / support / disputes ----
-export function refundOrder(_s: GameState, _orderId: number, _amount?: number): void {}
-export function answerTicket(_s: GameState, _ticketId: string, _resolution: 'answered' | 'refunded' | 'replacement' | 'partial_refund'): void {}
-/** Activity completion: work through up to `count` open tickets. Returns solved count. */
-export function resolveTickets(_s: GameState, _count: number): number { return 0 }
-/** 'self' enqueues the fight_chargeback activity; 'accept' concedes immediately. */
-export function respondChargeback(_s: GameState, _id: string, _how: 'self' | 'accept'): void {}
-/** Activity/app completion: submit evidence. */
-export function submitChargeback(_s: GameState, _id: string, _by: 'self' | 'app'): void {}
-
-// ---- queries (pure) ----
-export function emptyStoreDay(): StoreDay {
-  return {
-    sessions: 0, sessionsBySource: {}, sessionsByDevice: { mobile: 0, desktop: 0, tablet: 0 }, atc: 0, checkout: 0,
-    converted: 0, orders: 0, units: 0, grossSales: 0, discounts: 0, returns: 0, netSales: 0, shipping: 0, taxes: 0,
-    totalSales: 0, newCustomers: 0, returningCustomers: 0, ordersBySource: {}, salesBySource: {}, byProduct: {}, cogs: 0, fees: 0,
+/** Klavio: win back 6–9% of yesterday's abandoned checkouts as email orders today. */
+function scheduleRecoveries(s: GameState, day: number) {
+  const st = s.store
+  const ab = st.abandoned
+  if (!ab || ab.day !== day - 1) return
+  st.abandoned = { day, byProduct: {} }
+  if (!hasApp(s, 'klavio')) return
+  const hours = Array.from({ length: 24 }, (_, h) => h).filter(h => h >= 7)
+  for (const [spId, n] of Object.entries(ab.byProduct)) {
+    const k = binomial(s, n, randRange(s, APP_SIM.klavioRecovery[0], APP_SIM.klavioRecovery[1]))
+    for (let i = 0; i < k; i++) {
+      const h = weightedPick(s, hours, x => BENCHMARKS.seasonality.trafficByHour[x])
+      const hour = day * 24 + h
+      const rec = (st.recovery ??= [])
+      const ex = rec.find(r => r.storeProductId === spId && r.hour === hour)
+      if (ex) ex.count++
+      else rec.push({ storeProductId: spId, hour, count: 1 })
+    }
   }
 }
-/** Sum StoreDay over a range. */
-export function storeRange(_s: GameState, _range: DateRange): StoreDay { return emptyStoreDay() }
-export type StoreMetric = 'totalSales' | 'netSales' | 'orders' | 'sessions' | 'conversionRate' | 'aov' | 'atcRate' | 'returningRate'
-/** Chart series: hourly buckets for ≤2-day ranges, else daily. */
-export function storeSeries(_s: GameState, _metric: StoreMetric, _range: DateRange): { t: number; label: string; value: number }[] { return [] }
-export function breakEven(_s: GameState, _storeProductId: string): { landedCost: number; fees: number; margin: number; breakEvenCpa: number; breakEvenRoas: number } {
-  return { landedCost: 0, fees: 0, margin: 0, breakEvenCpa: 0, breakEvenRoas: 0 }
-}
+
+// ---- setup & settings (setup.ts) ----
+export { createStore, updateStoreSettings, generatePolicy, buyDomain, changePlan } from './setup'
+/** Domain availability & price check (no purchase). */
+export { domainQuote } from './setup'
+/** Theme library: premium themes are bought once, then published. */
+export { buyTheme, publishTheme, canUseTheme } from './setup'
+
+// ---- products (setup.ts / grade.ts) ----
+/** Import from AliExprez → draft StoreProduct using supplier title/description/photos. Returns id. */
+export { importProduct } from './setup'
+/** Patch a product and regrade its page. */
+export { updateProduct, setProductStatus, deleteProduct, sanitizeHtml } from './setup'
+/** CRO grader — the heart of page-building skill. Pure. */
+export { gradePage, cvrMultFromScore, FACTOR_WEIGHTS } from './grade'
+/** Page helpers for the editor/storefront. */
+export {
+  sectionAvailability, sectionActive, hasStickyAtc, hasTrustBadges, hasBundles, effectiveLoadTime, effectivePrice,
+  effectivePromise, realDeliveryWindow,
+} from './grade'
+/** Requires a reviews app. Imports supplier reviews (count, min stars). */
+export { importReviews } from './setup'
+
+// ---- apps ----
+export { installApp, uninstallApp } from './setup'
+
+// ---- discounts ----
+export { upsertDiscount, deleteDiscount } from './setup'
+
+// ---- orders / support / disputes (ops.ts) ----
+export { refundOrder, answerTicket } from './ops'
+/** Activity completion: work through up to `count` open tickets. Returns solved count. */
+export { resolveTickets } from './ops'
+/** 'self' enqueues the fight_chargeback activity; 'accept' concedes immediately. */
+export { respondChargeback } from './ops'
+/** Activity/app completion: submit evidence. */
+export { submitChargeback } from './ops'
+/** Manual fulfillment (no DSerz): place & pay the supplier order. */
+export { fulfillOrder, fulfillOrders, awaitingSupplier } from './ops'
+/** Disputes ÷ orders over the last N days (default 30). Ads read this for account risk. */
+export { chargebackRatio, chargebackEvidencePreview, openTicketCount, ordersToFulfill } from './ops'
+export { REPLY_TEMPLATES, DISPUTE_REASON_TEXT } from './templates'
+
+// ---- queries (pure) ----
+export { emptyStoreDay, storeRange, storeSeries, breakEven } from './analytics'
+export type { StoreMetric } from './analytics'
+export { planFees as storePlanFees, PLAN_LABEL, PAYMENT_LABELS, lifetimeOrders } from './util'
+
 export function sourceLabel(src: TrafficSource): string {
   return ({ fadbook: 'Fadbook', tiktak: 'TikTak', tiktak_organic: 'TikTak (organic)', influencer: 'Influencer', organic: 'Search', direct: 'Direct', email: 'Klavio email' } as const)[src]
 }

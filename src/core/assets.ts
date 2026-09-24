@@ -8,5 +8,7 @@ export const portrait = (id: string) => asset(`people/${id}.webp`)
 export const playerPortrait = (mood: 'neutral' | 'happy' | 'tired' | 'stressed') => asset(`player/${mood}.webp`)
 export const gearImage = (id: string) => asset(`gear/${id}.webp`)
 export const audioFile = (name: string) => asset(`audio/${name}`)
+/** Coach Kev's portrait (young man in a backwards cap). Creators never use it. */
+export const COACH_PORTRAIT = 'p12'
 /** 18 portrait ids p01..p18 */
 export const PORTRAITS = Array.from({ length: 18 }, (_, i) => `p${String(i + 1).padStart(2, '0')}`)

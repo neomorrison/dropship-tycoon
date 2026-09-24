@@ -1,41 +1,49 @@
-// PLACEHOLDER game screen — the ui-shell agent replaces this with the full HUD,
-// apartment scene, activity panel, notifications and computer/browser overlay.
-import { Suspense } from 'react'
+// The in-game screen: HUD on top, room scene + activity panel, and every overlay
+// (computer/phone, toasts, Coach Kev, decision modals, settings/report).
+import { preload } from 'react-dom'
 import { useGameLoop } from '../../core/engine'
 import { useGS } from '../../core/store'
-import { useUI, openSite, setSpeed, navigateTab, closeTab } from '../../core/ui'
-import { formatClock, formatDate, dayOf } from '../../core/time'
-import { money } from '../../core/format'
-import { SITES, SITE_COMPONENTS } from '../sites/registry'
+import { roomImage } from '../../core/assets'
+import './shell.css'
+import './scene.css'
+import './browser.css'
+import Hud from './Hud'
+import Scene from './Scene'
+import { ROOM_BACKDROP } from './hotspots'
+import SidePanel from './SidePanel'
+import Computer from './Computer'
+import CoachBubble from './CoachBubble'
+import ModalHost from './ModalHost'
+import Overlays from './Overlays'
+import { Toasts, useNotificationFeed } from './Notifications'
+import { useMidnightRecap, useProgressChimes, useSaveOnHide, useShortcuts } from './effects'
+import type { CSSProperties } from 'react'
 
 export default function GameScreen() {
   useGameLoop()
-  const hour = useGS(s => s.time.hour)
-  const cash = useGS(s => s.finance.cash)
-  const { speed, computerOpen, tabs, activeTab, hourFrac } = useUI()
-  const tab = tabs.find(t => t.id === activeTab)
-  const Site = tab ? SITE_COMPONENTS[tab.site] : null
+  useShortcuts()
+  useSaveOnHide()
+  useNotificationFeed()
+  useMidnightRecap()
+  useProgressChimes()
+  const tier = useGS(s => Math.max(0, Math.min(5, Math.round(s.home.tier))))
+  const atWork = useGS(s => s.player.location === 'work')
+  const roomKey = atWork ? 'mcdoodles' : `tier${tier}`
+  const dark = roomKey === 'tier5'
+  // warm the cache for the other location so walking to/from work doesn't flash
+  preload(atWork ? roomImage(tier) : roomImage('mcdoodles'), { as: 'image' })
   return (
-    <div style={{ height: '100%', display: 'grid', gridTemplateRows: 'auto 1fr', color: '#fff' }}>
-      <div style={{ display: 'flex', gap: 12, padding: 8, alignItems: 'center', background: '#1b1e25' }}>
-        <b>{formatDate(dayOf(hour))} {formatClock(hour, hourFrac)}</b>
-        {[0, 1, 2, 4].map(sp => <button key={sp} onClick={() => setSpeed(sp as 0 | 1 | 2 | 4)} style={{ fontWeight: speed === sp ? 700 : 400 }}>{sp === 0 ? '⏸' : `${sp}x`}</button>)}
-        <span>Cash {money(cash)}</span>
-        <button onClick={() => useUI.getState().set({ computerOpen: !computerOpen })}>💻 Computer</button>
-      </div>
-      {computerOpen ? (
-        <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr', background: '#fff', color: '#111', minHeight: 0 }}>
-          <div style={{ display: 'flex', gap: 4, padding: 4, background: '#dee1e6', flexWrap: 'wrap' }}>
-            {SITES.filter(s => s.bookmark).map(s => <button key={s.id} onClick={() => openSite(s.id)}>{s.glyph} {s.name}</button>)}
-            {tabs.map(t => <span key={t.id}><button onClick={() => useUI.getState().set({ activeTab: t.id })}>{t.site}</button><button onClick={() => closeTab(t.id)}>×</button></span>)}
-          </div>
-          <div style={{ overflow: 'auto', minHeight: 0 }}>
-            {tab && Site && <Suspense fallback={<div>Loading…</div>}><Site tabId={tab.id} path={tab.path} navigate={p => navigateTab(tab.id, p)} compact={false} /></Suspense>}
-          </div>
-        </div>
-      ) : (
-        <div style={{ display: 'grid', placeItems: 'center' }}>Apartment scene goes here</div>
-      )}
+    <div className={dark ? 'sh-game is-dark-room' : 'sh-game'} style={{ '--sh-room-bg': ROOM_BACKDROP[roomKey] ?? '#fbf3e7' } as CSSProperties} data-room={roomKey}>
+      <Hud />
+      <main className="sh-main">
+        <Scene />
+        <SidePanel />
+      </main>
+      <Computer />
+      <CoachBubble />
+      <Toasts />
+      <ModalHost />
+      <Overlays />
     </div>
   )
 }

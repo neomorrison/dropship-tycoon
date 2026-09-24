@@ -1,0 +1,355 @@
+// Detailed-targeting catalog for Fadbook (Interests / Behaviors / Demographics) and TikTak (Interests).
+// OWNER: sim-ads. Sizes are US monthly-active audience estimates for Fadbook, in the ranges Meta's
+// audience-size tool shows (niche interests 1–10M, hobbies 10–60M, mass categories 60–190M).
+// BENCHMARKS.fadbook.audienceSizeUS.interest ([2M, 25M]) is the typical band. TikTak sizes are scaled
+// by its smaller adult ad reach (TIKTAK_REACH_RATIO below).
+// `niches` is hidden relevance data for the audience-fit model — never shown to players.
+import type { Niche } from './productList'
+import type { Platform } from '../core/types'
+
+export type InterestKind = 'interest' | 'behavior' | 'demographic'
+
+export interface InterestDef {
+  id: string
+  name: string
+  /** Fadbook-style taxonomy path shown under the name */
+  path: string
+  kind: InterestKind
+  /** US audience on Fadbook (people) */
+  size: number
+  /** product niches this audience over-indexes on (hidden) */
+  niches: Niche[]
+  /** broad buying-intent audiences (shoppers, deal seekers): small CTR lift for any product */
+  shopper?: boolean
+  platforms: Platform[]
+}
+
+/** TikTak US adult ad reach ≈ 136M vs Fadbook ≈ 250M (DataReportal 2025 ad-reach estimates). est. */
+export const TIKTAK_REACH_RATIO = 136 / 250
+
+const BOTH: Platform[] = ['fadbook', 'tiktak']
+const FB: Platform[] = ['fadbook']
+
+type Row = [name: string, millions: number, niches: Niche[], path: string, kind?: InterestKind, platforms?: Platform[], shopper?: boolean]
+
+const P = {
+  pets: 'Interests > Hobbies and activities > Pets',
+  beauty: 'Interests > Shopping and fashion > Beauty',
+  fashion: 'Interests > Shopping and fashion',
+  home: 'Interests > Hobbies and activities > Home and garden',
+  food: 'Interests > Food and drink',
+  cooking: 'Interests > Food and drink > Cooking',
+  fitness: 'Interests > Fitness and wellness',
+  wellness: 'Interests > Fitness and wellness > Wellness',
+  vehicles: 'Interests > Hobbies and activities > Vehicles',
+  tech: 'Interests > Technology',
+  electronics: 'Interests > Technology > Consumer electronics',
+  games: 'Interests > Entertainment > Games',
+  family: 'Interests > Family and relationships',
+  parenting: 'Interests > Family and relationships > Parenting',
+  kids: 'Interests > Hobbies and activities > Arts and music',
+  outdoors: 'Interests > Sports and outdoors > Outdoor recreation',
+  sports: 'Interests > Sports and outdoors',
+  shopping: 'Interests > Shopping and fashion > Shopping',
+  holidays: 'Interests > Hobbies and activities > Holidays',
+  purchase: 'Behaviors > Purchase behavior',
+  digital: 'Behaviors > Digital activities',
+  parents: 'Demographics > Parents',
+  lifeEvents: 'Demographics > Life events',
+} as const
+
+const ROWS: Row[] = [
+  // ---- Pets ----
+  ['Pets', 72, ['pet'], P.pets],
+  ['Dogs', 64, ['pet'], P.pets],
+  ['Cats', 38, ['pet'], P.pets],
+  ['Puppies', 21, ['pet'], P.pets],
+  ['Kittens', 12, ['pet'], P.pets],
+  ['Animal rescue', 16, ['pet'], P.pets],
+  ['Pet adoption', 11, ['pet'], P.pets],
+  ['Pet food', 14, ['pet'], P.pets],
+  ['Dog training', 9.8, ['pet'], P.pets],
+  ['Labrador Retriever', 8.6, ['pet'], P.pets],
+  ['Golden Retriever', 7.2, ['pet'], P.pets],
+  ['German Shepherd', 6.9, ['pet'], P.pets],
+  ['Pit bull', 6.1, ['pet'], P.pets],
+  ['French Bulldog', 4.8, ['pet'], P.pets],
+  ['Veterinary medicine', 5.3, ['pet', 'wellness'], P.pets],
+  ['Dog grooming', 3.1, ['pet'], P.pets],
+  ['Dog walking', 2.2, ['pet', 'outdoor'], P.pets],
+  ['Cat lovers', 9.4, ['pet'], P.pets],
+  ['Dog parks', 2.6, ['pet', 'outdoor'], P.pets],
+  // ---- Beauty ----
+  ['Cosmetics', 62, ['beauty'], P.beauty],
+  ['Skin care', 58, ['beauty', 'wellness'], P.beauty],
+  ['Makeup', 54, ['beauty'], P.beauty],
+  ['Perfume', 38, ['beauty', 'fashion'], P.beauty],
+  ['Hair care', 31, ['beauty'], P.beauty],
+  ['Hairstyle', 28, ['beauty', 'fashion'], P.beauty],
+  ['Beauty salons', 22, ['beauty'], P.beauty],
+  ['Lipstick', 21, ['beauty'], P.beauty],
+  ['Nail art', 12, ['beauty', 'fashion'], P.beauty],
+  ['Facial care', 11, ['beauty'], P.beauty],
+  ['Manicure', 9.5, ['beauty'], P.beauty],
+  ['Anti-aging', 7.8, ['beauty', 'wellness'], P.beauty],
+  ['Acne', 6.1, ['beauty'], P.beauty],
+  ['Curly hair', 5.6, ['beauty'], P.beauty],
+  ['Dermatology', 5.2, ['beauty', 'wellness'], P.beauty],
+  ['Eyelash extensions', 4.9, ['beauty'], P.beauty],
+  ['Korean skincare', 4.2, ['beauty'], P.beauty],
+  ['Teeth whitening', 2.7, ['beauty'], P.beauty],
+  ['Hair styling tools', 3.4, ['beauty', 'gadgets'], P.beauty],
+  ['Clean beauty', 3.8, ['beauty', 'wellness'], P.beauty],
+  // ---- Home ----
+  ['Home improvement', 62, ['home'], P.home],
+  ['Interior design', 58, ['home'], P.home],
+  ['Home décor', 49, ['home'], P.home],
+  ['Do it yourself (DIY)', 44, ['home', 'car'], P.home],
+  ['Gardening', 38, ['home', 'outdoor'], P.home],
+  ['Home appliances', 22, ['home', 'kitchen', 'gadgets'], P.home],
+  ['Apartments', 19, ['home'], P.home],
+  ['Candles', 17, ['home', 'wellness'], P.home],
+  ['Lighting design', 14, ['home'], P.home],
+  ['House cleaning', 12, ['home'], P.home],
+  ['Smart home', 11, ['home', 'gadgets'], P.home],
+  ['Bedroom furniture', 9.1, ['home'], P.home],
+  ['Minimalism', 7.5, ['home', 'fashion'], P.home],
+  ['Professional organizing', 6.4, ['home'], P.home],
+  ['Tiny house movement', 5.1, ['home'], P.home],
+  ['Housekeeping', 4.2, ['home'], P.home],
+  ['Laundry', 3.9, ['home'], P.home],
+  ['Feng shui', 3.8, ['home', 'wellness'], P.home],
+  ['Houseplants', 8.8, ['home', 'outdoor'], P.home],
+  ['Home organization', 5.9, ['home', 'kitchen'], P.home],
+  // ---- Kitchen / food ----
+  ['Food and drink', 180, ['kitchen'], P.food],
+  ['Cooking', 94, ['kitchen'], P.cooking],
+  ['Coffee', 64, ['kitchen'], P.food],
+  ['Recipes', 55, ['kitchen'], P.cooking],
+  ['Wine', 42, ['kitchen'], P.food],
+  ['Baking', 41, ['kitchen', 'kids'], P.cooking],
+  ['Barbecue', 27, ['kitchen', 'outdoor'], P.cooking],
+  ['Cocktails', 23, ['kitchen'], P.food],
+  ['Grilling', 17, ['kitchen', 'outdoor'], P.cooking],
+  ['Whiskey', 14, ['kitchen'], P.food],
+  ['Vegetarian cuisine', 13, ['kitchen', 'wellness'], P.food],
+  ['Kitchenware', 12, ['kitchen'], P.cooking],
+  ['Air fryer', 11, ['kitchen', 'gadgets'], P.cooking],
+  ['Home cooking', 9.2, ['kitchen'], P.cooking],
+  ['Espresso', 9.0, ['kitchen'], P.food],
+  ['Smoothies', 8.3, ['kitchen', 'fitness', 'wellness'], P.food],
+  ['Kitchen utensils', 7.8, ['kitchen'], P.cooking],
+  ['Meal preparation', 6.8, ['kitchen', 'fitness'], P.cooking],
+  ['Spices', 5.1, ['kitchen'], P.cooking],
+  ['Home bartending', 3.3, ['kitchen'], P.food],
+  // ---- Fitness ----
+  ['Physical fitness', 96, ['fitness'], P.fitness],
+  ['Yoga', 38, ['fitness', 'wellness'], P.fitness],
+  ['Running', 36, ['fitness', 'outdoor'], P.fitness],
+  ['Gyms', 29, ['fitness'], P.fitness],
+  ['Weight training', 26, ['fitness'], P.fitness],
+  ['Cycling', 21, ['fitness', 'outdoor'], P.fitness],
+  ['Bodybuilding', 19, ['fitness'], P.fitness],
+  ['Pilates', 12, ['fitness', 'wellness'], P.fitness],
+  ['Personal trainer', 11, ['fitness'], P.fitness],
+  ['Marathon', 9.1, ['fitness'], P.fitness],
+  ['Protein (nutrient)', 8.0, ['fitness', 'wellness'], P.fitness],
+  ['High-intensity interval training', 7.9, ['fitness'], P.fitness],
+  ['Home workout', 6.5, ['fitness', 'home'], P.fitness],
+  ['Stretching', 5.8, ['fitness', 'wellness'], P.fitness],
+  ['Calisthenics', 3.2, ['fitness'], P.fitness],
+  ['Jump rope', 1.9, ['fitness'], P.fitness],
+  ['Abdominal exercise', 4.4, ['fitness'], P.fitness],
+  ['Martial arts', 14, ['fitness'], P.sports],
+  // ---- Wellness ----
+  ['Health & wellness', 88, ['wellness'], P.wellness],
+  ['Weight loss', 41, ['wellness', 'fitness'], P.wellness],
+  ['Nutrition', 34, ['wellness', 'fitness', 'kitchen'], P.wellness],
+  ['Massage', 31, ['wellness'], P.wellness],
+  ['Meditation', 24, ['wellness'], P.wellness],
+  ['Spas', 23, ['wellness', 'beauty'], P.wellness],
+  ['Dietary supplements', 21, ['wellness', 'fitness'], P.wellness],
+  ['Self-care', 18, ['wellness', 'beauty'], P.wellness],
+  ['Essential oils', 17, ['wellness', 'home'], P.wellness],
+  ['Mindfulness', 16, ['wellness'], P.wellness],
+  ['Alternative medicine', 14, ['wellness'], P.wellness],
+  ['Vitamins', 12, ['wellness'], P.wellness],
+  ['Physical therapy', 9.7, ['wellness', 'fitness'], P.wellness],
+  ['Ketogenic diet', 9.4, ['wellness', 'kitchen'], P.wellness],
+  ['Aromatherapy', 8.9, ['wellness', 'home'], P.wellness],
+  ['Holistic health', 6.3, ['wellness'], P.wellness],
+  ['Chiropractic', 6.2, ['wellness'], P.wellness],
+  ['Stress management', 4.6, ['wellness'], P.wellness],
+  ['Back pain', 4.1, ['wellness'], P.wellness],
+  ['Sleep', 13, ['wellness', 'baby'], P.wellness],
+  ['Insomnia', 3.4, ['wellness'], P.wellness],
+  ['Biohacking', 1.7, ['wellness', 'gadgets'], P.wellness],
+  ['Posture', 2.3, ['wellness', 'fitness'], P.wellness],
+  // ---- Cars ----
+  ['Cars', 88, ['car'], P.vehicles],
+  ['Trucks', 29, ['car'], P.vehicles],
+  ['Motorcycles', 24, ['car', 'outdoor'], P.vehicles],
+  ['Road trips', 22, ['car', 'outdoor'], P.vehicles],
+  ['Motorsport', 21, ['car'], P.vehicles],
+  ['Pickup trucks', 19, ['car'], P.vehicles],
+  ['SUVs', 16, ['car'], P.vehicles],
+  ['Electric vehicles', 13, ['car', 'gadgets'], P.vehicles],
+  ['Classic cars', 11, ['car'], P.vehicles],
+  ['Off-roading', 8.7, ['car', 'outdoor'], P.vehicles],
+  ['Automotive aftermarket', 6.1, ['car'], P.vehicles],
+  ['Car tuning', 5.3, ['car'], P.vehicles],
+  ['Car detailing', 5.2, ['car'], P.vehicles],
+  ['Commuting', 4.7, ['car'], P.vehicles],
+  ['Car wash', 4.4, ['car'], P.vehicles],
+  ['Car audio', 3.6, ['car', 'gadgets'], P.vehicles],
+  // ---- Gadgets / tech ----
+  ['Technology', 110, ['gadgets'], P.tech],
+  ['Video games', 104, ['gadgets', 'kids'], P.games],
+  ['Consumer electronics', 71, ['gadgets'], P.electronics],
+  ['Photography', 67, ['gadgets'], 'Interests > Hobbies and activities > Arts and music'],
+  ['Smartphones', 58, ['gadgets'], P.electronics],
+  ['PC games', 42, ['gadgets'], P.games],
+  ['Podcasts', 36, ['gadgets'], 'Interests > Entertainment > Reading'],
+  ['Gadgets', 23, ['gadgets'], P.electronics],
+  ['Tablet computers', 21, ['gadgets'], P.electronics],
+  ['Headphones', 12, ['gadgets', 'fitness'], P.electronics],
+  ['Live streaming', 12, ['gadgets'], P.tech],
+  ['Wearable technology', 8.1, ['gadgets', 'fitness'], P.electronics],
+  ['Mobile phone accessories', 6.8, ['gadgets', 'car'], P.electronics],
+  ['Drones', 6.2, ['gadgets', 'outdoor'], P.electronics],
+  ['Home automation', 5.9, ['gadgets', 'home'], P.tech],
+  ['3D printing', 4.8, ['gadgets'], P.tech],
+  ['Wireless earbuds', 4.3, ['gadgets'], P.electronics],
+  ['Content creators', 7.7, ['gadgets', 'beauty'], P.tech],
+  ['Stationery', 5.4, ['gadgets', 'kids'], 'Interests > Hobbies and activities > Arts and music'],
+  ['Scrapbooking', 3.6, ['gadgets', 'kids'], 'Interests > Hobbies and activities > Arts and music'],
+  // ---- Baby / parents ----
+  ['Parenting', 74, ['baby', 'kids'], P.parenting],
+  ['Motherhood', 28, ['baby', 'kids'], P.parenting],
+  ['Baby products', 22, ['baby'], P.parenting],
+  ['Pregnancy', 14, ['baby'], P.parenting],
+  ['Baby shower', 11, ['baby'], P.parenting],
+  ['Fatherhood', 11, ['baby', 'kids'], P.parenting],
+  ['Baby food', 7.1, ['baby', 'kitchen'], P.parenting],
+  ['Newborn care', 6.9, ['baby'], P.parenting],
+  ['Stay-at-home parent', 6.8, ['baby', 'kids', 'home'], P.parenting],
+  ['Breastfeeding', 5.4, ['baby'], P.parenting],
+  ['Diapers', 4.4, ['baby'], P.parenting],
+  ['Attachment parenting', 2.2, ['baby'], P.parenting],
+  ['Parents with toddlers (01-02 years)', 9.6, ['baby', 'kids'], P.parents, 'demographic', FB],
+  ['New parents (0-12 months)', 5.1, ['baby'], P.parents, 'demographic', FB],
+  ['Expectant parents', 3.2, ['baby'], P.lifeEvents, 'demographic', FB],
+  // ---- Kids ----
+  ['Toys', 38, ['kids'], P.family],
+  ['Arts and crafts', 34, ['kids', 'home'], P.kids],
+  ['Board games', 21, ['kids'], P.games],
+  ['Birthday parties', 13, ['kids'], P.family],
+  ['Parents with preschoolers (03-05 years)', 11, ['kids', 'baby'], P.parents, 'demographic', FB],
+  ['Parents with early school-age children (06-08 years)', 12, ['kids'], P.parents, 'demographic', FB],
+  ['Children\'s books', 9.4, ['kids'], P.family],
+  ['Back to school', 7.4, ['kids', 'fashion'], P.family],
+  ['Homeschooling', 7.2, ['kids'], P.parenting],
+  ['Educational toys', 6.1, ['kids', 'baby'], P.family],
+  ['Building toys', 5.3, ['kids'], P.family],
+  ['Coloring books', 5.3, ['kids'], P.kids],
+  ['Science education', 4.7, ['kids', 'gadgets'], P.family],
+  ['Montessori education', 3.9, ['kids', 'baby'], P.parenting],
+  ['Animated movies', 42, ['kids'], 'Interests > Entertainment > Movies'],
+  // ---- Fashion ----
+  ['Clothing', 102, ['fashion'], P.fashion],
+  ['Shoes', 64, ['fashion'], P.fashion],
+  ['Jewelry', 49, ['fashion'], P.fashion],
+  ['Handbags', 31, ['fashion'], P.fashion],
+  ['Watches', 26, ['fashion', 'gadgets'], P.fashion],
+  ['Fashion accessories', 23, ['fashion'], P.fashion],
+  ['Sunglasses', 19, ['fashion', 'outdoor'], P.fashion],
+  ['Boutiques', 18, ['fashion'], P.fashion],
+  ['Sneakers', 17, ['fashion', 'fitness'], P.fashion],
+  ['Menswear', 13, ['fashion'], P.fashion],
+  ['Streetwear', 11, ['fashion'], P.fashion],
+  ['Thrift stores', 11, ['fashion'], P.fashion],
+  ['Vintage clothing', 9.9, ['fashion'], P.fashion],
+  ['Hats', 8.5, ['fashion'], P.fashion],
+  ['Activewear', 8.2, ['fashion', 'fitness'], P.fashion],
+  ['Plus-size clothing', 7.4, ['fashion'], P.fashion],
+  ['Travel', 96, ['fashion', 'outdoor'], 'Interests > Hobbies and activities > Travel'],
+  ['Backpacking travel', 6.6, ['fashion', 'outdoor'], 'Interests > Hobbies and activities > Travel'],
+  ['Hair accessories', 4.1, ['fashion', 'beauty'], P.fashion],
+  // ---- Outdoor ----
+  ['Nature', 88, ['outdoor'], P.outdoors],
+  ['Camping', 41, ['outdoor'], P.outdoors],
+  ['Outdoor recreation', 38, ['outdoor'], P.outdoors],
+  ['Fishing', 36, ['outdoor'], P.outdoors],
+  ['Hiking', 33, ['outdoor', 'fitness'], P.outdoors],
+  ['Beaches', 29, ['outdoor'], P.outdoors],
+  ['Hunting', 23, ['outdoor'], P.outdoors],
+  ['National parks', 22, ['outdoor'], P.outdoors],
+  ['Recreational vehicles', 12, ['outdoor', 'car'], P.outdoors],
+  ['Backyard', 11, ['outdoor', 'home'], P.home],
+  ['Backpacking (hiking)', 11, ['outdoor'], P.outdoors],
+  ['Kayaking', 9.2, ['outdoor'], P.outdoors],
+  ['Birdwatching', 7.6, ['outdoor'], P.outdoors],
+  ['Picnics', 6.9, ['outdoor', 'kitchen'], P.outdoors],
+  ['Survival skills', 6.3, ['outdoor'], P.outdoors],
+  ['Rock climbing', 5.8, ['outdoor', 'fitness'], P.outdoors],
+  ['Patio', 5.2, ['outdoor', 'home'], P.home],
+  ['Ice fishing', 1.6, ['outdoor'], P.outdoors],
+  ['Winter sports', 12, ['outdoor', 'fitness'], P.sports],
+  ['Landscaping', 7.9, ['outdoor', 'home'], P.home],
+  // ---- Shopping, gifting & behaviors (every niche) ----
+  ['Online shopping', 190, [], P.shopping, 'interest', BOTH, true],
+  ['Shopping', 170, [], P.shopping, 'interest', BOTH, true],
+  ['Engaged Shoppers', 128, [], P.purchase, 'behavior', FB, true],
+  ['Christmas', 76, [], P.holidays],
+  ['Gifts', 44, [], P.shopping, 'interest', BOTH, true],
+  ['Discount stores', 30, [], P.shopping, 'interest', BOTH, true],
+  ['Luxury goods', 24, ['fashion', 'beauty'], P.shopping],
+  ['Coupons', 21, [], P.shopping, 'interest', BOTH, true],
+  ['Small business owners', 21, [], 'Behaviors > Small business owners', 'behavior', FB],
+  ['Valentine\'s Day', 21, [], P.holidays],
+  ['Black Friday (shopping)', 18, [], P.shopping, 'interest', BOTH, true],
+  ['Mother\'s Day', 17, [], P.holidays],
+  ['Father\'s Day', 14, [], P.holidays],
+  ['Bargain hunting', 12, [], P.shopping, 'interest', BOTH, true],
+  ['Early technology adopters', 9.4, ['gadgets'], P.digital, 'behavior', FB],
+  ['Gift cards', 9.0, [], P.shopping],
+  ['Subscription boxes', 3.9, [], P.shopping, 'interest', BOTH, true],
+  ['Fadbook Payments users (90 days)', 26, [], P.digital, 'behavior', FB, true],
+  ['Frequent travelers', 31, ['fashion', 'outdoor'], 'Behaviors > Travel', 'behavior', FB],
+  ['Commuters', 8.8, ['car', 'gadgets'], 'Behaviors > Travel', 'behavior', FB],
+  ['Recently moved', 6.4, ['home', 'kitchen'], P.lifeEvents, 'demographic', FB],
+  ['Newlywed (6 months)', 2.9, ['home', 'kitchen'], P.lifeEvents, 'demographic', FB],
+  ['Upcoming birthday', 5.7, [], P.lifeEvents, 'demographic', FB],
+  ['Homeowners', 64, ['home', 'outdoor'], 'Demographics > Home > Home ownership', 'demographic', FB],
+  ['Renters', 48, ['home'], 'Demographics > Home > Home ownership', 'demographic', FB],
+  ['Dog owners', 37, ['pet'], 'Behaviors > Pet owners', 'behavior', FB],
+  ['Cat owners', 21, ['pet'], 'Behaviors > Pet owners', 'behavior', FB],
+  ['Pet owners', 52, ['pet'], 'Behaviors > Pet owners', 'behavior', FB],
+  ['Beauty enthusiasts', 24, ['beauty'], 'Behaviors > Purchase behavior', 'behavior', FB, true],
+]
+
+const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
+
+export const INTERESTS: InterestDef[] = ROWS.map(([name, m, niches, path, kind = 'interest', platforms = BOTH, shopper]) => ({
+  id: slug(name),
+  name,
+  path,
+  kind,
+  size: Math.round(m * 1_000_000),
+  niches,
+  shopper: shopper || undefined,
+  platforms,
+}))
+
+const BY_NAME = new Map(INTERESTS.map(i => [i.name.toLowerCase(), i]))
+const BY_ID = new Map(INTERESTS.map(i => [i.id, i]))
+
+/** Look up an interest by id or display name (case-insensitive). */
+export function findInterest(key: string): InterestDef | undefined {
+  return BY_ID.get(key) ?? BY_NAME.get(key.toLowerCase())
+}
+
+/** Platform-specific audience size for one interest. */
+export function interestSize(i: InterestDef, platform: Platform): number {
+  return platform === 'tiktak' ? Math.round(i.size * TIKTAK_REACH_RATIO) : i.size
+}

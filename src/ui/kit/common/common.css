@@ -1,0 +1,103 @@
+/* ==========================================================================
+   Common kit (kx-) — images, money, stars, countdown, floating layers
+   ========================================================================== */
+
+.kx-floating { outline: none; }
+.kx-floating-passive { pointer-events: none; }
+
+/* ---- ImageWithFallback ---- */
+.kx-img { position: relative; overflow: hidden; display: block; background: #f6f6f7; }
+.kx-img-click { cursor: pointer; }
+.kx-img-el { width: 100%; height: 100%; display: block; }
+.kx-img-fallback {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+.kx-img-fallback svg { width: 100%; height: 100%; display: block; }
+.kx-img-fallback text { font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+@keyframes kx-kenburns {
+  0% { transform: scale(1) translate(0, 0); }
+  50% { transform: scale(1.12) translate(-2%, -1.5%); }
+  100% { transform: scale(1) translate(0, 0); }
+}
+.kx-kenburns { animation: kx-kenburns 14s ease-in-out infinite; transform-origin: 50% 40%; will-change: transform; }
+
+/* ---- Money ---- */
+.kx-money { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.kx-money-positive { color: #0c5132; }
+.kx-money-negative { color: #8e0b21; }
+.kx-money-subdued { color: #616161; }
+.kx-money-strike { text-decoration: line-through; color: #616161; }
+.kx-money-code { color: #616161; font-size: 0.92em; }
+
+/* ---- Stars ---- */
+.kx-stars { display: inline-flex; align-items: center; gap: 4px; vertical-align: middle; line-height: 1; }
+.kx-stars-row { display: inline-flex; gap: 1px; }
+.kx-stars-row svg { display: block; }
+.kx-stars-value { font-weight: 600; font-size: 0.95em; }
+.kx-stars-count { color: #616161; font-size: 0.92em; }
+
+/* ---- Countdown ---- */
+.kx-countdown { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.kx-countdown-urgent { color: #c70a24; font-weight: 600; }
+.kx-countdown-expired { color: #8a8a8a; }
+.kx-countdown-prefix { font-weight: inherit; }
+.kx-countdown-boxes { display: inline-flex; align-items: flex-start; gap: 6px; }
+.kx-countdown-box { position: relative; display: inline-flex; flex-direction: column; align-items: center; min-width: 38px; }
+.kx-countdown-box b {
+  display: block; min-width: 38px; padding: 6px 4px; border-radius: 6px; background: #1a1a1a; color: #fff;
+  font-size: 18px; font-weight: 700; text-align: center; line-height: 1.1;
+}
+.kx-countdown-box small { margin-top: 3px; font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; color: inherit; opacity: 0.7; }
+.kx-countdown-box i { position: absolute; right: -6px; top: 6px; font-style: normal; font-weight: 700; }
+
+/* ---- EmptyArt ---- */
+.kx-emptyart { display: block; }
+
+/* ---- RangeCalendar (themed via --kx-cal-* variables) ---- */
+.kx-cal {
+  --kx-cal-accent-default: #303030;
+  display: flex; gap: 24px; flex-wrap: wrap; font-family: var(--kx-cal-font, inherit); font-size: 13px; line-height: 20px; color: inherit;
+  user-select: none;
+}
+.kx-cal-month { width: 252px; flex: none; }
+.kx-cal-head { display: flex; align-items: center; justify-content: space-between; height: 32px; margin-bottom: 4px; }
+.kx-cal-title { font-weight: 650; font-size: 13px; }
+.kx-cal-nav, .kx-cal-nav-spacer { width: 28px; height: 28px; flex: none; }
+.kx-cal-nav {
+  display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: var(--kx-cal-radius, 8px);
+  background: transparent; color: inherit; cursor: pointer;
+}
+.kx-cal-nav:hover { background: rgba(0, 0, 0, 0.06); }
+.kx-cal-nav:disabled { opacity: 0.3; cursor: default; background: transparent; }
+.kx-cal-grid { display: grid; grid-template-columns: repeat(7, 36px); row-gap: 2px; }
+.kx-cal-wd { height: 28px; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #8a8a8a; font-weight: 550; }
+.kx-cal-blank { height: 36px; }
+.kx-cal-day {
+  position: relative; height: 36px; width: 36px; padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer;
+  font: inherit; font-variant-numeric: tabular-nums;
+}
+.kx-cal-day > span {
+  position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px;
+  border-radius: var(--kx-cal-radius, 8px);
+}
+.kx-cal-day:hover > span { background: rgba(0, 0, 0, 0.06); }
+.kx-cal-day:disabled { color: #c4c4c4; cursor: default; }
+.kx-cal-day:disabled > span { background: transparent; }
+.kx-cal-in::before {
+  content: ''; position: absolute; inset: 2px 0; background: var(--kx-cal-range, #ebebeb);
+}
+.kx-cal-start::before { left: 50%; }
+.kx-cal-end::before { right: 50%; }
+.kx-cal-start.kx-cal-end::before { display: none; }
+.kx-cal-start > span, .kx-cal-end > span, .kx-cal-start:hover > span, .kx-cal-end:hover > span {
+  background: var(--kx-cal-accent, var(--kx-cal-accent-default)); color: var(--kx-cal-accent-text, #fff); font-weight: 650;
+}
+.kx-cal-today > span::after {
+  content: ''; position: absolute; bottom: 4px; left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%;
+  background: var(--kx-cal-accent, var(--kx-cal-accent-default));
+}
+.kx-cal-start.kx-cal-today > span::after, .kx-cal-end.kx-cal-today > span::after { background: var(--kx-cal-accent-text, #fff); }
+.kx-cal-day:focus-visible { outline: none; }
+.kx-cal-day:focus-visible > span { outline: 2px solid var(--kx-cal-focus, #005bd3); outline-offset: 1px; }

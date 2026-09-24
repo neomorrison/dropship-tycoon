@@ -5,6 +5,7 @@ import type { SiteProps } from '../types'
 import type { ShopiflyNav, ShopiflyPageProps } from './route'
 import AdminFrame from './AdminFrame'
 import { useGS } from '../../../core/store'
+import { PolarisProvider, SkeletonPage } from '../../kit/polaris'
 
 const P = (f: () => Promise<{ default: ComponentType<ShopiflyPageProps> }>) => lazy(f)
 const Onboarding = P(() => import('./pages/Onboarding'))
@@ -19,6 +20,7 @@ const Finances = P(() => import('./pages/Finances'))
 const Disputes = P(() => import('./pages/Disputes'))
 const Inbox = P(() => import('./pages/Inbox'))
 const Marketing = P(() => import('./pages/Marketing'))
+const ContentFiles = P(() => import('./core/ContentFiles'))
 const Products = P(() => import('./pages/Products'))
 const ProductEditor = P(() => import('./pages/ProductEditor'))
 const OnlineStore = P(() => import('./pages/OnlineStore'))
@@ -36,6 +38,7 @@ function resolve(path: string): { C: ComponentType<ShopiflyPageProps>; params: s
     case 'orders': return b ? { C: OrderDetail, params: [b, ...rest] } : { C: Orders, params: [] }
     case 'products': return b ? { C: ProductEditor, params: [b, ...rest] } : { C: Products, params: [] }
     case 'customers': return { C: Customers, params: seg.slice(1) }
+    case 'content': return { C: ContentFiles, params: seg.slice(1) }
     case 'analytics':
       if (b === 'reports') return { C: Reports, params: rest }
       if (b === 'live') return { C: LiveView, params: rest }
@@ -55,7 +58,7 @@ function resolve(path: string): { C: ComponentType<ShopiflyPageProps>; params: s
 /** sidebar item to highlight for a path */
 export function navFor(path: string): ShopiflyNav {
   const a = path.split('/').filter(Boolean)[0] ?? 'home'
-  return (['orders', 'products', 'customers', 'analytics', 'marketing', 'discounts', 'finances', 'online-store', 'apps', 'settings', 'inbox', 'disputes'].includes(a) ? a : 'home') as ShopiflyNav
+  return (['orders', 'products', 'customers', 'content', 'analytics', 'marketing', 'discounts', 'finances', 'online-store', 'apps', 'settings', 'inbox', 'disputes'].includes(a) ? a : 'home') as ShopiflyNav
 }
 
 export default function ShopiflyAdmin(props: SiteProps) {
@@ -68,9 +71,17 @@ export default function ShopiflyAdmin(props: SiteProps) {
     )
   }
   const { C, params } = resolve(props.path)
-  return (
-    <AdminFrame nav={navFor(props.path)} navigate={props.navigate} compact={props.compact}>
+  // the theme editor is a full-screen tool without the admin chrome (like Shopify's customizer)
+  if (C === ThemeEditor) {
+    return (
       <Suspense fallback={null}>
+        <C {...props} params={params} />
+      </Suspense>
+    )
+  }
+  return (
+    <AdminFrame nav={navFor(props.path)} path={props.path} navigate={props.navigate} compact={props.compact}>
+      <Suspense fallback={<PolarisProvider><SkeletonPage /></PolarisProvider>}>
         <C {...props} params={params} />
       </Suspense>
     </AdminFrame>

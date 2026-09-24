@@ -290,7 +290,7 @@ Modals: `pushModal` + `registerEventModalHandlers()` registering handlers via `r
 - **Side panel**: current activity + progress, queue (cancel), quick actions grouped (Life, Business: research/support (n open tickets)/chargebacks/study/post organic), next shift, autopilot toggle.
 - **Computer overlay**: macOS-like browser window: tab strip (favicon glyph chips with site colors), toolbar (back/forward/reload, URL bar `https://{domain}/{path}`), bookmarks bar (sites with `bookmark:true`), content renders `SITE_COMPONENTS[site]` with `SiteProps`. Esc closes. At work → **phone frame** (390px, `compact: true`) with a banner.
 - **Toasts** (bottom-right, Shopify style dark pill): sales toasts batch per tick ("🛍 3 new orders · $119.97"), play cha-ching; other kinds colored. Bell dropdown lists notifications with deep links (`site`/`path`).
-- **Decision modals** (centered card, pauses), **Coach Kev bubble** (bottom-left portrait p05 + text + "Show me" → `openSite(app)` + dismiss), **Settings** (volume, music, SFX, autopilot, coach, save now, export/import, quit to title), optional **daily recap** toast at midnight.
+- **Decision modals** (centered card, pauses), **Coach Kev bubble** (bottom-left portrait p12 `COACH_PORTRAIT` + text + "Show me" → `openSite(app)` + dismiss), **Settings** (volume, music, SFX, autopilot, coach, save now, export/import, quit to title), optional **daily recap** toast at midnight.
 - **Audio** (`src/ui/audio.ts`): WebAudio-synthesized SFX (chaChing, ping, click, error, levelUp, fryer), music player looping `audio/lofi1.mp3`/`lofi2.mp3` (crossfade, starts after first user gesture), mute/volume from UI store.
 - Responsive: < 900px stacks scene/panel; computer overlay fills the screen.
 
@@ -336,7 +336,7 @@ Tabs: **New brief** (product picker [store products; shows sample/stock status],
 - **Zillo**: listings (tier images, rent, requirements met/not, features), apply & move.
 - **Amazin**: gear catalog (images, price, stars, Prime-ish badge), Buy, owned/equipped state, equip.
 - **UpWorx**: candidates (portrait, role, skill stars, weekly rate, bio), hire; My team (salary, morale, config forms per role), fire.
-- **Ecom Academy**: Coach Kev (portrait p05; "Ask Kev" → `askCoach`), glossary & benchmarks (from BENCHMARKS + docs/BENCHMARKS.md rules of thumb), courses (study activity per skill), milestones gallery, skill levels.
+- **Ecom Academy**: Coach Kev (portrait p12 `COACH_PORTRAIT`; "Ask Kev" → `askCoach`), glossary & benchmarks (from BENCHMARKS + docs/BENCHMARKS.md rules of thumb), courses (study activity per skill), milestones gallery, skill levels.
 
 ## 10. Balance targets (verified later with headless bots)
 - **Novice bot** (random product, supplier title/description, price 2× cogs, 1 supplier-edit creative, $50/day broad, doubles budget after any sale, never refreshes, never answers tickets): loses money in ≥85% of 90-day runs; typical ROAS 0.4–1.0.

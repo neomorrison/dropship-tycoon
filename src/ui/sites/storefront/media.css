@@ -1,0 +1,125 @@
+/* Product media treatments (st-media). Supplier gallery = same shot, different crops;
+   lifestyle / UGC / video = "real-life" looks built from the product photo. */
+.st-media {
+  position: relative;
+  aspect-ratio: 1;
+  width: 100%;
+  overflow: hidden;
+  background: #fff;
+  isolation: isolate;
+  user-select: none;
+}
+.st-media--click { cursor: pointer; }
+.st-media-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  transition: transform 0.35s ease;
+}
+.st-media-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 600 22px/1 system-ui, sans-serif;
+  letter-spacing: 0.5px;
+}
+.st-media--small .st-media-fallback { font-size: 12px; }
+
+/* ---- supplier gallery variants ---- */
+.st-media--supplier.st-media--v0 { background: #fff; }
+.st-media--supplier.st-media--v0 .st-media-img { transform: scale(0.92); }
+.st-media--supplier.st-media--v1 { background: #f3f3f1; }
+.st-media--supplier.st-media--v1 .st-media-img { object-fit: cover; transform: scale(1.35); }
+.st-media--supplier.st-media--v2 { background: #fff; }
+.st-media--supplier.st-media--v2 .st-media-img { object-fit: cover; transform: scale(1.9); transform-origin: 32% 36%; }
+.st-media--supplier.st-media--v3 { background: linear-gradient(145deg, #e9eef6 0%, #d7e0ee 100%); }
+.st-media--supplier.st-media--v3 .st-media-img {
+  transform: scale(0.74) rotate(-7deg);
+  filter: drop-shadow(0 14px 16px rgba(20, 30, 50, 0.28));
+  mix-blend-mode: multiply;
+}
+.st-media--supplier.st-media--v4 { background: #f7f4ef; }
+.st-media--supplier.st-media--v4 .st-media-img { transform: scaleX(-1) scale(0.86); mix-blend-mode: multiply; }
+.st-media--supplier.st-media--v5 { background: #fafafa; }
+.st-media--supplier.st-media--v5 .st-media-img { object-fit: cover; transform: scale(2.3); transform-origin: 66% 62%; }
+
+/* ---- lifestyle: product on a real surface, warm light ---- */
+.st-media--lifestyle { background: linear-gradient(180deg, #efe6da 0%, #e4d3bd 58%, #b98f66 58.5%, #a57a52 100%); }
+.st-media--lifestyle.st-media--v1 { background: linear-gradient(180deg, #dfe7e3 0%, #cddbd4 55%, #8d9a8f 55.5%, #7a867b 100%); }
+.st-media--lifestyle.st-media--v2 { background: linear-gradient(180deg, #f2eee8 0%, #e7e1d8 62%, #cfc6ba 62.5%, #c2b7a8 100%); }
+.st-media--lifestyle.st-media--v3 { background: linear-gradient(180deg, #e9e3f0 0%, #d8cfe4 52%, #6f5b52 52.5%, #5d4a42 100%); }
+.st-media--lifestyle .st-media-img {
+  transform: translateY(6%) scale(0.7);
+  mix-blend-mode: multiply;
+  filter: saturate(1.08) contrast(1.03) drop-shadow(0 18px 10px rgba(60, 40, 20, 0.28));
+}
+.st-media--lifestyle.st-media--v2 .st-media-img { transform: translate(-8%, 8%) scale(0.64) rotate(-4deg); }
+
+/* ---- UGC photo: phone snapshot, harder light, a little tilt ---- */
+.st-media--ugc_photo { background: radial-gradient(circle at 30% 20%, #f5efe6 0%, #dccfbd 55%, #b7a58d 100%); }
+.st-media--ugc_photo.st-media--v1 { background: radial-gradient(circle at 70% 25%, #eef2f5 0%, #cfd8df 55%, #9eabb6 100%); }
+.st-media--ugc_photo.st-media--v2 { background: radial-gradient(circle at 40% 30%, #f7ecec 0%, #e3cfcf 55%, #bfa3a3 100%); }
+.st-media--ugc_photo.st-media--v3 { background: radial-gradient(circle at 50% 20%, #eef3e8 0%, #d3dfc8 55%, #a9b99a 100%); }
+.st-media--ugc_photo .st-media-img {
+  transform: rotate(4deg) scale(0.86) translateY(4%);
+  mix-blend-mode: multiply;
+  filter: contrast(1.08) saturate(1.18) brightness(1.03);
+}
+.st-media--ugc_photo.st-media--v1 .st-media-img { transform: rotate(-5deg) scale(0.9); }
+
+/* ---- video / GIF: lifestyle frame + badge ---- */
+.st-media--video, .st-media--gif { background: linear-gradient(180deg, #2c2f36 0%, #4a4f59 60%, #6b6258 60.5%, #564d44 100%); }
+.st-media--video .st-media-img, .st-media--gif .st-media-img {
+  transform: translateY(5%) scale(0.72);
+  filter: brightness(1.05) contrast(1.05) drop-shadow(0 16px 14px rgba(0, 0, 0, 0.45));
+}
+.st-media-grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 90% at 50% 40%, transparent 55%, rgba(0, 0, 0, 0.22) 100%),
+    linear-gradient(115deg, rgba(255, 214, 160, 0.14), rgba(255, 255, 255, 0) 55%);
+  z-index: 1;
+}
+.st-media--ugc_photo .st-media-grain {
+  background:
+    radial-gradient(110% 90% at 45% 35%, transparent 50%, rgba(0, 0, 0, 0.28) 100%),
+    linear-gradient(200deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0) 40%);
+}
+.st-media-play {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 2;
+  transform: translate(-50%, -50%);
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  color: #111;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-left: 3px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+}
+.st-media--small .st-media-play { width: 20px; height: 20px; padding-left: 1px; }
+.st-media-badge {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  z-index: 2;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font: 700 10px/1 system-ui, sans-serif;
+  letter-spacing: 0.4px;
+  padding: 3px 5px;
+  border-radius: 4px;
+}
+.st-media--small .st-media-badge { left: 2px; bottom: 2px; font-size: 8px; padding: 2px 3px; }

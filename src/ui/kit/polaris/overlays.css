@@ -1,0 +1,99 @@
+/* Polaris overlays (p-): modal, popover, action list, tooltip */
+
+/* ---- Modal ---- */
+.p-modal-backdrop {
+  position: fixed; inset: 0; z-index: 5000; display: flex; align-items: center; justify-content: center; padding: 24px 16px;
+  background: rgba(0, 0, 0, 0.5); animation: p-fade-in 140ms ease-out;
+}
+.p-modal-backdrop-inline { position: absolute; }
+@keyframes p-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes p-modal-in { from { opacity: 0; transform: translateY(12px) scale(0.98); } to { opacity: 1; transform: none; } }
+.p-modal {
+  position: relative; display: flex; flex-direction: column; width: 100%; max-width: 620px; max-height: calc(100% - 16px);
+  background: var(--p-surface); border-radius: var(--p-radius-400); box-shadow: var(--p-shadow-modal); overflow: hidden;
+  animation: p-modal-in 180ms cubic-bezier(0.2, 0, 0, 1);
+  outline: none;
+}
+.p-modal-small { max-width: 380px; }
+.p-modal-large { max-width: 980px; }
+.p-modal-fullScreen { max-width: none; height: 100%; max-height: none; }
+.p-modal-instant { animation: none; }
+.p-modal-head {
+  flex: none; display: flex; align-items: center; gap: 8px; min-height: 52px; padding: 12px 12px 12px 16px;
+  background: var(--p-surface-tertiary); border-bottom: 1px solid var(--p-border);
+}
+.p-modal-title { flex: 1; min-width: 0; margin: 0; font-size: 14px; line-height: 20px; font-weight: 650; overflow-wrap: anywhere; }
+.p-modal-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.p-modal-section { padding: 16px; }
+.p-modal-section + .p-modal-section { border-top: 1px solid var(--p-border-secondary); }
+.p-modal-section-flush { padding: 0; }
+.p-modal-section-subdued { background: var(--p-surface-secondary); }
+.p-modal-foot {
+  flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 16px;
+  border-top: 1px solid var(--p-border); background: var(--p-surface);
+}
+.p-modal-foot-left { min-width: 0; flex: 1; color: var(--p-text-secondary); }
+.p-modal-foot-actions { display: flex; gap: 8px; flex: none; margin-left: auto; }
+.p-modal-loading { display: flex; align-items: center; justify-content: center; padding: 48px 0; color: var(--p-icon-secondary); }
+@media (max-width: 520px) {
+  .p-modal-backdrop { align-items: flex-end; padding: 0; }
+  .p-modal { max-width: none; border-radius: var(--p-radius-400) var(--p-radius-400) 0 0; max-height: 92%; }
+}
+
+/* ---- Popover ---- */
+.p-popover-activator { display: inline-flex; max-width: 100%; }
+.p-popover-activator-full { display: flex; width: 100%; }
+.p-popover {
+  background: var(--p-surface); border-radius: var(--p-radius-300); box-shadow: var(--p-shadow-popover);
+  max-width: min(480px, calc(100vw - 16px)); overflow: hidden; display: flex; flex-direction: column;
+  animation: p-pop-in 120ms cubic-bezier(0.2, 0, 0, 1);
+}
+@keyframes p-pop-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+[data-placement^='top'] > .p-popover { animation-name: p-pop-in-up; }
+@keyframes p-pop-in-up { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.p-popover-scroll { overflow-y: auto; overscroll-behavior: contain; }
+.p-popover-sectioned { padding: 12px; }
+.p-popover-fluid { max-width: none; }
+.p-popover-section { padding: 12px; }
+.p-popover-section + .p-popover-section { border-top: 1px solid var(--p-border-secondary); }
+.p-popover-pane-flush { padding: 0; }
+
+/* ---- ActionList ---- */
+.p-actionlist { padding: 6px; display: flex; flex-direction: column; min-width: 160px; }
+.p-actionlist-section + .p-actionlist-section { border-top: 1px solid var(--p-border-secondary); margin-top: 6px; padding-top: 6px; }
+.p-actionlist-title { padding: 4px 6px 4px; font-size: 12px; line-height: 16px; font-weight: 650; color: var(--p-text-secondary); }
+.p-actionlist-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.p-action {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 6px 8px; border: 0; border-radius: var(--p-radius-200);
+  background: transparent; color: var(--p-text); font-family: var(--p-font); font-size: 13px; line-height: 20px; font-weight: 450;
+  text-align: left; cursor: pointer; white-space: nowrap;
+}
+.p-action:hover, .p-action:focus-visible { background: var(--p-surface-hover); outline: none; }
+.p-action:focus-visible { box-shadow: inset 0 0 0 2px var(--p-border-focus); }
+.p-action:active { background: var(--p-surface-active); }
+.p-action-active { background: var(--p-surface-selected); font-weight: 550; }
+.p-action-destructive { color: var(--p-text-critical); }
+.p-action-destructive .p-icon { color: #c70a24; }
+.p-action-destructive:hover { background: #fee9e8; }
+.p-action:disabled { color: var(--p-text-disabled); cursor: default; background: transparent; }
+.p-action:disabled .p-icon { color: var(--p-text-disabled); }
+.p-action-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.p-action-content { overflow: hidden; text-overflow: ellipsis; }
+.p-action-help { font-size: 12px; line-height: 16px; color: var(--p-text-secondary); white-space: normal; }
+.p-action-suffix, .p-action-prefix { flex: none; display: inline-flex; align-items: center; color: var(--p-text-secondary); }
+.p-action-check { flex: none; width: 16px; display: inline-flex; color: var(--p-icon); }
+
+/* ---- Tooltip ---- */
+.p-tooltip-activator { display: inline-flex; max-width: 100%; }
+.p-tooltip-activator-block { display: flex; }
+.p-tooltip-dotted {
+  text-decoration: underline dotted #b5b5b5; text-decoration-thickness: 2px; text-underline-offset: 4px; cursor: default;
+}
+.p-tooltip {
+  max-width: 200px; padding: 4px 8px; border-radius: var(--p-radius-200); background: var(--p-surface);
+  box-shadow: 0 4px 8px -2px rgba(26, 26, 26, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.08);
+  color: var(--p-text); font-family: var(--p-font); font-size: 12px; line-height: 16px; font-weight: 450; overflow-wrap: anywhere;
+  animation: p-fade-in 100ms ease-out;
+}
+.p-tooltip-wide { max-width: 320px; }
+.p-tooltip-padded { padding: 8px 12px; }

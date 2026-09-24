@@ -184,6 +184,17 @@ export interface PlayerState {
   lastSleepHour: Hour
   /** consecutive hours awake */
   awakeHours: number
+  // ---- optional (sim-life-finance) ----
+  /** gym buff (+5% energy regen) lasts until this hour */
+  gymBuffUntil?: Hour
+  /** consecutive days whose average mood was < 25 (3 → burnout) */
+  lowMoodDays?: number
+  /** consecutive days with ≥ 6 awake hours at energy < 20 (3 → sickness) */
+  lowEnergyDays?: number
+  /** last day the player socialized (social mood penalty) */
+  lastSocialDay?: Day
+  /** running needs stats for the current day (reset at midnight) */
+  today?: { moodSum: number; hours: number; lowEnergyHours: number }
 }
 
 export type JobRank = 'crew' | 'shift_lead' | 'manager'
@@ -193,6 +204,30 @@ export interface Shift {
   startHour: number // 0..23 local
   hours: number
   status: 'scheduled' | 'in_progress' | 'worked' | 'missed' | 'called_out'
+  // ---- optional (sim-life-finance) ----
+  /** hours actually worked (late arrival / leaving early) */
+  hoursWorked?: number
+  /** minutes late clocking in */
+  lateMin?: number
+  /** included in a paycheck already */
+  paid?: boolean
+  /** shift started while the player was busy (sleeping/filming): waiting up to 1h before it counts as missed */
+  pendingSince?: Hour
+  /** hourly wage when the shift was worked (paychecks use it) */
+  rate?: number
+}
+export interface PayStub {
+  id: string
+  payDay: Day
+  periodStart: Day
+  periodEnd: Day
+  hours: number
+  rate: number
+  gross: number
+  socialSecurity: number
+  medicare: number
+  federal: number
+  net: number
 }
 export interface JobState {
   employed: boolean
@@ -209,6 +244,15 @@ export interface JobState {
   quitDay: Day | null
   firedDay: Day | null
   timesRehired: number
+  // ---- optional (sim-life-finance) ----
+  payStubs?: PayStub[]
+  /** days the player called out sick (2 free per rolling 30 days) */
+  callOutDays?: Day[]
+  /** last day a strike was issued (strikes expire after 60 clean days) */
+  lastStrikeDay?: Day | null
+  lateCount?: number
+  /** manager promotion declined on this day (re-offered 30 days later) */
+  promotionDeclinedDay?: Day | null
 }
 
 export interface HomeState {
@@ -218,6 +262,11 @@ export interface HomeState {
   /** day rent is next due */
   rentDueDay: Day
   missedRent: number
+  // ---- optional (sim-life-finance) ----
+  /** security deposit held by the landlord */
+  deposit?: number
+  /** consecutive on-time rent payments (3 forgives one missed-rent strike) */
+  onTimeRentStreak?: number
 }
 
 export type GearSlot = 'phone' | 'lighting' | 'camera' | 'computer' | 'audio'
@@ -243,6 +292,21 @@ export interface StaffMember {
   morale: number
   /** role-specific settings, e.g. media buyer rules or creator product focus */
   config?: Record<string, string | number | boolean>
+  // ---- optional (sim-life-finance) ----
+  /** UpWorx profile details */
+  headline?: string
+  country?: string
+  rating?: number
+  jobsDone?: number
+  hoursPerWeek?: number
+  /** consecutive days salary went unpaid */
+  unpaidDays?: number
+  /** ugc_creator: creatives owed / delivered this week */
+  weeklyQuota?: number
+  producedThisWeek?: number
+  /** latest automation summary shown on the My team page */
+  lastReport?: string
+  lastReportDay?: Day
 }
 export interface StaffCandidate extends Omit<StaffMember, 'hiredDay' | 'morale'> { bio: string; expiresDay: Day }
 export interface StaffState { members: StaffMember[]; candidates: StaffCandidate[]; lastRefreshDay: Day }
@@ -277,6 +341,14 @@ export interface RecurringBill {
   business: boolean
   /** app/plan/staff id this bill belongs to */
   ref?: string
+  // ---- optional (sim-life-finance) ----
+  /** first day a payment attempt failed (null/undefined = current) */
+  failedSince?: Day | null
+  /** unpaid amount carried forward (rent, salaries) */
+  arrears?: number
+  lastPaidDay?: Day
+  /** monthly/yearly anchor day-of-month */
+  dom?: number
 }
 export interface Loan {
   id: string
@@ -286,6 +358,22 @@ export interface Loan {
   /** share of each Shopifly payout withheld until repaid (capital) */
   withholdPct: number
   takenDay: Day
+  // ---- optional (sim-life-finance) ----
+  /** flat fee as a share of principal (capital) */
+  feePct?: number
+  /** payouts already withheld against (idempotency) */
+  withheldPayoutIds?: string[]
+  repaid?: number
+}
+export interface CardStatement {
+  closeDay: Day
+  balance: number
+  minDue: number
+  dueDay: Day
+  interest: number
+  fees: number
+  paid: number
+  status: 'open' | 'paid_full' | 'paid_min' | 'late'
 }
 export interface DailyPnl {
   revenue: number
@@ -318,12 +406,45 @@ export interface FinanceState {
     autopay: 'none' | 'min' | 'full'
     lateCount: number
     frozen: boolean
+    // ---- optional (sim-life-finance) ----
+    statements?: CardStatement[]
+    /** card payments received since the last statement closed */
+    paidSinceStatement?: number
+    /** minimum payments missed and still owed */
+    pastDue?: number
+    /** consecutive statements paid at least the minimum on time */
+    onTimeStreak?: number
+    /** last statement not paid in full → interest accrues at next close */
+    carriedBalance?: boolean
+    /** APR before any penalty rate */
+    baseApr?: number
+    lastIncreaseDay?: Day | null
   }
   loans: Loan[]
   ledger: LedgerEntry[]
   bills: RecurringBill[]
   pnl: Record<Day, DailyPnl>
-  taxes: { ytdBusinessProfit: number; paidYtd: number; nextDueDay: Day; lastEstimate: number }
+  taxes: {
+    ytdBusinessProfit: number; paidYtd: number; nextDueDay: Day; lastEstimate: number
+    // ---- optional (sim-life-finance) ----
+    year?: number
+    /** unpaid estimated tax (+ penalties) */
+    owed?: number
+    owedSinceDay?: Day | null
+    penalties?: number
+    priorYearProfit?: number
+    priorYearPaid?: number
+    /** debit estimated payments from checking on the due date */
+    autopay?: boolean
+    payments?: { day: Day; amount: number; label: string }[]
+    /** estimated payment due on nextDueDay (set by the 14-day reminder, reduced by payments) */
+    pending?: number
+  }
+  // ---- optional (sim-life-finance) ----
+  /** last day the Shopifly Capital offer email was sent */
+  capitalOfferMailDay?: Day | null
+  /** last day a low-balance warning was sent */
+  lowBalanceWarnDay?: Day | null
   /** real-time business cash "in flight" snapshot helpers are derived, not stored */
 }
 
@@ -349,6 +470,9 @@ export interface ProductMarket {
   competitorPrice: number
   /** your store's share of recent ad-driven sales in this product (0..1) */
   yourShare: number
+  // ---- optional (sim-market-events) ----
+  /** compact history for charts, one sample every 2 days (last ~90 days): [day, orders30d, competitors, trendIndex×100] */
+  hist?: [Day, number, number, number][]
 }
 export interface SampleOrder { id: string; catalogId: string; orderedDay: Day; arriveDay: Day; received: boolean; cost: number }
 export interface BulkOrder {
@@ -364,6 +488,13 @@ export interface BulkOrder {
   arriveDay: Day
   status: 'production' | 'in_transit' | 'received'
   total: number
+  // ---- optional (sim-market-events) ----
+  /** cost breakdown of `total` */
+  goods?: number
+  freight?: number
+  duty?: number
+  customsFee?: number
+  brandName?: string
 }
 export interface SourcingState {
   mode: FulfillmentMode
@@ -388,6 +519,24 @@ export interface CatalogState {
   spyToolUntilDay: Day | null
   /** research depth per product 0..3 (reveals insights) */
   research: Record<string, number>
+  // ---- optional (sim-market-events) ----
+  /** your store's sales per catalog product, counted by the market module from store.orders */
+  sales?: Record<string, CatalogSales>
+  /** highest store order id already counted into `sales` */
+  salesCountedOrderId?: number
+  /** Mineo subscription renews monthly while true */
+  spyToolAutoRenew?: boolean
+}
+export interface CatalogSales {
+  orders: number
+  units: number
+  revenue: number
+  /** product + shipping + fees recorded on the orders */
+  costs: number
+  /** units fulfilled via AliExprez/agent dropship (these show up in the supplier's public order count) */
+  dropshipUnits: number
+  /** last 30 days: [day, orders, units, revenue] */
+  daily: [Day, number, number, number][]
 }
 
 // ---------------------------------------------------------------------------
@@ -435,6 +584,9 @@ export interface StoreProduct {
   publishedDay: Day | null
   /** cached result of grading at last save */
   grade?: PageGrade
+  // ---- optional (sim-store) ----
+  /** best page score that has earned copywriting XP (anti-farming) */
+  xpBestScore?: number
 }
 export interface PageGradeFactor {
   key: string
@@ -444,6 +596,39 @@ export interface PageGradeFactor {
   weight: number
   /** player-facing tip (why + how to fix) */
   tip: string
+  // ---- optional (sim-store) ----
+  /** 'good' ≥ 75, 'warn' 45–74, 'bad' < 45 */
+  status?: 'good' | 'warn' | 'bad'
+  /** specific findings, most important first (editor reveals more with copywriting skill) */
+  details?: string[]
+}
+/** Text-analysis readout of a product page (sim-store), for skill-gated editor helpers. */
+export interface CopyMetrics {
+  words: number
+  bullets: number
+  headings: number
+  paragraphs: number
+  avgParagraphWords: number
+  /** "you"/"your" count */
+  youCount: number
+  /** distinct benefit words found (product keywords + generic benefit vocabulary) */
+  benefitWords: string[]
+  /** product keywords found in title/description */
+  keywordHits: string[]
+  /** spec-sheet / feature-only words count */
+  featureWords: number
+  /** 0..1 similarity of the description to the supplier copy */
+  supplierSimilarity: number
+  /** 0..1 similarity of the title to the supplier title */
+  titleSimilarity: number
+  mentionsGuarantee: boolean
+  mentionsShipping: boolean
+  /** supplier/spam phrases found ("hot sale", "please allow 1-3cm error"…) */
+  spamTerms: string[]
+  /** risky medical/absolute claims found ("cure", "guaranteed results"…) */
+  claimTerms: string[]
+  /** buyer objections and whether the description or FAQ answers them */
+  objections: { text: string; covered: boolean }[]
 }
 export interface PageGrade {
   score: number
@@ -459,6 +644,10 @@ export interface PageGrade {
   honesty: number
   factors: PageGradeFactor[]
   gradedHour: Hour
+  // ---- optional (sim-store) ----
+  copy?: CopyMetrics
+  /** page promises faster delivery than fulfillment can do */
+  shippingLie?: boolean
 }
 export interface InstalledApp { appId: string; installedDay: Day; planIdx: number; settings?: Record<string, unknown> }
 export interface Discount {
@@ -502,6 +691,35 @@ export interface Order {
   refunded: number
   /** hidden: will this unit disappoint */
   defective: boolean
+  // ---- optional (sim-store) ----
+  /** fulfillment route used for this order */
+  mode?: FulfillmentMode
+  /** hour the supplier/3PL order was placed & paid; null = waiting (no DSerz → manual Fulfill, or payment failed) */
+  supplierOrderedHour?: Hour | null
+  /** owed to the supplier for this order (unit cost incl. import duty + shipping) */
+  supplierCost?: number
+  /** carrier tracking number once shipped */
+  tracking?: string
+  paymentMethod?: 'card' | 'shop_pay' | 'paypal' | 'bnpl'
+  discountCode?: string
+  /** delivered after the promised window */
+  late?: boolean
+  /** page honesty when the customer bought (lying about shipping raises disputes) */
+  honesty?: number
+  /** internal schedule: customer contact / dispute days (hidden) */
+  wismoDay?: Day | null
+  issueDay?: Day | null
+  questionDay?: Day | null
+  cbDay?: Day | null
+  escalated?: boolean
+  /** a support ticket for this order was answered */
+  ticketAnswered?: boolean
+  replacementSent?: boolean
+  reviewed?: boolean
+  /** refunded before shipping: supplier order cancelled */
+  cancelled?: boolean
+  /** Klavio abandoned-checkout recovery */
+  recovered?: boolean
 }
 export interface SupportTicket {
   id: string
@@ -514,6 +732,16 @@ export interface SupportTicket {
   /** unanswered past this → escalates (chargeback risk / bad review) */
   dueHour: Hour
   resolution?: 'answered' | 'refunded' | 'replacement' | 'partial_refund'
+  // ---- optional (sim-store) ----
+  customer?: string
+  email?: string
+  productTitle?: string
+  solvedHour?: Hour
+  /** who closed it: the player, staff, or an app auto-reply */
+  solvedBy?: 'you' | 'staff' | 'auto'
+  // ---- optional (ui-shopifly-core) ----
+  /** text of the reply the merchant sent from the Inbox */
+  reply?: string
 }
 export interface Chargeback {
   id: string
@@ -523,10 +751,19 @@ export interface Chargeback {
   openedDay: Day
   respondByDay: Day
   status: 'needs_response' | 'submitted' | 'won' | 'lost' | 'accepted'
-  handledBy?: 'self' | 'app'
+  handledBy?: 'self' | 'app' | 'staff'
   /** 0..1 evidence strength (tracking, delivery, policies, honest page) */
   evidence: number
   decideDay?: Day
+  // ---- optional (sim-store) ----
+  /** dispute fee charged when opened (returned on a win) */
+  fee?: number
+  submittedDay?: Day
+  customer?: string
+  /** issuer-facing reason text */
+  reasonText?: string
+  /** evidence checklist shown on the dispute page */
+  evidenceItems?: { label: string; ok: boolean }[]
 }
 export interface Payout {
   id: string
@@ -539,6 +776,14 @@ export interface Payout {
   fees: number
   refunds: number
   adjustments: number
+  // ---- optional (sim-store) ----
+  kind?: 'sales' | 'reserve_release'
+  /** explanation for held/adjusted payouts */
+  note?: string
+  /** Shopifly Capital repayment withheld from this payout */
+  capitalWithheld?: number
+  /** chargeback reserve withheld from this payout */
+  reserveWithheld?: number
 }
 export interface StoreDay {
   sessions: number
@@ -577,7 +822,16 @@ export interface StoreState {
   plan: PlanId
   trialEndsDay: Day | null
   createdDay: Day | null
-  theme: { id: string; primaryColor: string; font: string; logoText: string }
+  theme: {
+    id: string; primaryColor: string; font: string; logoText: string
+    // ---- optional (ui-shopifly-merch: theme editor / preferences) ----
+    /** sale badges, links, highlights (default: the theme preset accent) */
+    accentColor?: string
+    /** page background (default: the theme preset background) */
+    background?: string
+    /** announcement bar text above the header ('' hides it; undefined = automatic from shipping settings) */
+    announcement?: string
+  }
   policies: { refund: string; shipping: string; privacy: string; terms: string; contact: string }
   payments: { paypal: boolean; shopPay: boolean; bnpl: boolean }
   shipping: { freeShipping: boolean; flatRate: number; freeOver: number | null }
@@ -593,7 +847,14 @@ export interface StoreState {
   payouts: Payout[]
   /** sales captured but not yet in a payout */
   pendingBalance: number
-  hold: { active: boolean; reason: string; untilDay: Day; reservePct: number } | null
+  hold: {
+    active: boolean; reason: string; untilDay: Day; reservePct: number
+    // ---- optional (sim-store) ----
+    /** all payouts paused (risk review) until pauseUntilDay */
+    paused?: boolean
+    pauseUntilDay?: Day
+    kind?: 'review' | 'reserve' | 'review_reserve'
+  } | null
   analytics: { daily: Record<Day, StoreDay>; hourly: Record<Hour, StoreHour> }
   /** purchases seen by each pixel (data maturity) */
   pixel: Record<Platform, { installed: boolean; purchases: number; atc: number; views: number }>
@@ -601,6 +862,25 @@ export interface StoreState {
   liveVisitors: number
   /** repeat-purchase pipeline for consumables: customers expected to reorder */
   repeatPipeline: { catalogId: string; storeProductId: string; day: Day; count: number }[]
+  // ---- optional (sim-store) ----
+  /** purchased premium themes (free themes are always available) */
+  themesOwned?: string[]
+  /** money captured since the last payout (payout breakdown) */
+  balanceBreakdown?: { gross: number; fees: number; refunds: number; adjustments: number }
+  /** chargeback reserve slices held back from payouts */
+  reserves?: { id: string; amount: number; releaseDay: Day }[]
+  /** Klavio abandoned-checkout recoveries scheduled as email orders */
+  recovery?: { storeProductId: string; hour: Hour; count: number }[]
+  /** checkouts abandoned per product today (Klavio recovery pool) */
+  abandoned?: { day: Day; byProduct: Record<string, number> }
+  /** hourly batch for the "new orders" notification */
+  saleBatch?: { hour: Hour; count: number; amount: number; notifId: string }
+  cbWarnDay?: Day | null
+  lifetimeOrders?: number
+  lifetimeSales?: number
+  domainRenewDay?: Day | null
+  /** support desk stats (Inbox header) */
+  support?: { solved: number; escalated: number; responseHoursSum: number; answered: number }
 }
 
 // ---------------------------------------------------------------------------
@@ -629,6 +909,39 @@ export interface AdAccount {
   appeal: { submittedDay: Day; resolveDay: Day } | null
   disapprovals: number
   todaySpend: number
+  // ---- optional (sim-ads) ----
+  /** numeric account id as shown in Ads Manager ("Ad account ID: 1029…") */
+  displayId?: string
+  /** business manager label shown in the account switcher */
+  businessName?: string
+  /** agency renting out the account (rented accounts only) */
+  agencyName?: string
+  /** player-facing reason for restricted / disabled / payment_failed */
+  statusReason?: string
+  statusSinceHour?: Hour
+  /** billing charges & failures, oldest first (capped) */
+  billingHistory?: AdBillingRecord[]
+  /** failed charges (decays daily; ban-risk & quality signal) */
+  failedPayments?: number
+  lastFailedPaymentDay?: Day
+  /** day of the last >3x budget jump (ban-risk signal for 3 days) */
+  budgetJumpDay?: Day
+  /** appeal rejected: the decision is final */
+  appealDenied?: boolean
+  /** times this account was restricted/disabled */
+  banCount?: number
+  yesterdaySpend?: number
+}
+export interface AdBillingRecord {
+  id: string
+  hour: Hour
+  amount: number
+  status: 'paid' | 'failed'
+  /** account charged (null when the charge failed) */
+  method: AccountRef | null
+  reason: 'threshold' | 'monthly' | 'manual'
+  /** billing threshold that triggered the charge */
+  threshold?: number
 }
 export interface Targeting {
   type: 'broad' | 'interest' | 'lookalike' | 'retargeting'
@@ -653,6 +966,9 @@ export interface Campaign {
   bidStrategy: 'lowest_cost' | 'cost_cap'
   costCap: number | null
   createdHour: Hour
+  // ---- optional (sim-ads) ----
+  pausedHour?: Hour | null
+  lastBudgetChangeHour?: Hour
 }
 export interface LearningState {
   state: 'learning' | 'learning_limited' | 'active'
@@ -675,6 +991,11 @@ export interface AdSet {
   /** unique people reached lifetime (approx) */
   reach: number
   impressions: number
+  // ---- optional (sim-ads) ----
+  pausedHour?: Hour | null
+  lastBudgetChangeHour?: Hour
+  /** CBO: share of the campaign budget the optimizer gave this ad set last hour (0..1) */
+  allocShare?: number
 }
 export interface AdDayStats {
   spend: number
@@ -720,6 +1041,17 @@ export interface Ad {
   lifetime: AdDayStats
   /** rolling 7-day frequency on this ad's audience */
   frequency: number
+  // ---- optional (sim-ads) ----
+  firstDeliveryHour?: Hour | null
+  /** hour the policy review finishes (while review === 'in_review') */
+  reviewDoneHour?: Hour
+  /** TikTak Spark Ad: boosted organic post id */
+  sparkPostId?: string
+  /** share of the ad set's delivery this ad got last hour (0..1) */
+  allocShare?: number
+  pausedHour?: Hour | null
+  /** daily auction noise draws (hidden) */
+  noise?: { day: Day; cpm: number; ctr: number }
 }
 export interface CustomAudience {
   id: string
@@ -744,6 +1076,23 @@ export interface AutomatedRule {
   minSpend: number
   action: 'pause' | 'increase_budget' | 'decrease_budget'
   actionPct: number
+  // ---- optional (sim-ads) ----
+  /** evaluation window for the metric (default last_3d) */
+  window?: 'today' | 'yesterday' | 'last_3d' | 'last_7d' | 'lifetime'
+  /** limit to these entity ids (empty/undefined = every entity at `scope` on the platform) */
+  targetIds?: string[]
+  lastRunHour?: Hour
+}
+export interface RuleLogEntry {
+  id: string
+  hour: Hour
+  ruleId: string
+  ruleName: string
+  level: AdLevel
+  entityId: string
+  entityName: string
+  action: AutomatedRule['action']
+  detail: string
 }
 export interface AdsState {
   accounts: AdAccount[]
@@ -755,6 +1104,15 @@ export interface AdsState {
   rules: AutomatedRule[]
   /** organic TikTak posts */
   organicPosts: OrganicPost[]
+  // ---- optional (sim-ads) ----
+  /** account bans per platform (3+ → temporary advertising ban) */
+  bans?: Partial<Record<Platform, number>>
+  /** player may not open own accounts on this platform until this day */
+  bannedUntil?: Partial<Record<Platform, Day>>
+  /** automated rule executions, oldest first (capped) */
+  ruleLog?: RuleLogEntry[]
+  /** media_buying XP accounting (1 XP / $10 spend, capped daily) */
+  mbXp?: { day: Day; granted: number; carry: number }
 }
 export interface OrganicPost {
   id: string
@@ -767,6 +1125,19 @@ export interface OrganicPost {
   /** remaining viral curve (views per hour decaying) */
   velocity: number
   sparked: boolean
+  // ---- optional (sim-ads) ----
+  viral?: boolean
+  /** hourly velocity decay factor */
+  decay?: number
+  /** hour a viral post takes off */
+  popHour?: Hour | null
+  /** hourly decay of the viral curve once it takes off */
+  viralDecay?: number
+  /** views the post will reach (hidden) */
+  targetViews?: number
+  comments?: number
+  /** store sessions sent from the post (approx) */
+  sessions?: number
 }
 
 /** traffic produced by ads/organic for the store to convert (sim-internal, not saved) */
@@ -780,6 +1151,9 @@ export interface TrafficPacket {
   intent: number
   /** creative angle ↔ page message match multiplier (≈0.85..1.15) */
   messageMatch: number
+  // ---- optional (sim-store) ----
+  /** repeat-customer traffic (orders count as returning customers) */
+  returning?: boolean
 }
 /** conversions the store reports back for attribution (sim-internal) */
 export interface ConversionEvent { adId: string; atc: number; checkouts: number; purchases: number; revenue: number }
@@ -826,6 +1200,16 @@ export interface Creative {
   thumb: string
   /** other stores also use this footage (supplier edits) → faster fatigue */
   shared: boolean
+  // ---- optional (sim-ads) ----
+  /** UGC: hour the product reaches the creator */
+  sampleArriveHour?: Hour | null
+  /** agency pack id (3 variations share it) */
+  packId?: string
+  /** delivery style (native feels organic; polished looks like an ad) */
+  style?: 'native' | 'polished'
+  /** > 1 = fatigues faster (e.g. a creator stole the ad) */
+  fatigueBoost?: number
+  failReason?: string
 }
 export interface UgcCreator {
   id: string
@@ -839,6 +1223,12 @@ export interface UgcCreator {
   rating: number
   jobs: number
   style: 'native' | 'polished'
+  // ---- optional (sim-ads) ----
+  handle?: string
+  bio?: string
+  location?: string
+  /** marketplace listing expires (weekly refresh) */
+  expiresDay?: Day
 }
 export interface CreativeState { creatives: Creative[]; creators: UgcCreator[]; lastCreatorRefreshDay: Day }
 
@@ -859,6 +1249,17 @@ export interface Modifiers {
   organicBoost: Record<string, number>
   /** per catalogId CPM/CVR pressure from competitors (1 = none) */
   competitionMult: Record<string, number>
+  // ---- optional (read by sim-ads) ----
+  /** platform outage: no ad delivery while true */
+  deliveryPaused?: Partial<Record<Platform, boolean>>
+  // ---- optional (sim-market-events) ----
+  /** policy crackdown: multiply product claimRisk for ad review / ban risk (1 = normal) */
+  claimRiskMult?: number
+  /** friendly-fraud wave: multiply chargeback probability on orders with total ≥ chargebackMinOrder */
+  chargebackMult?: number
+  chargebackMinOrder?: number
+  /** extra creative fatigue by creativeId (e.g. another store ripped your ad) — divide fatigue frequency by this */
+  creativeFatigueMult?: Record<string, number>
 }
 export interface ActiveEvent {
   id: string
