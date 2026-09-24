@@ -1198,6 +1198,7 @@ def ring_light(name='ring_light', location=(0, 0, 0), rotation=0, h=1.6, obstacl
     """Ring light on a tripod stand, facing local -Y (toward whoever is filmed), with a phone clamped in the
     middle. Origin at the floor."""
     g = _g(name, location, rotation, obstacle, parent=parent)
+    g['gear'] = 'ring_light'  # baked gear: setGear skips a duplicate (docs/3D.md section 7)
     _tripod(g, h)
     torus(_n(g, 'ring'), 0.2, 0.028, (0, 0, h + 0.2), 'plastic_white', g, (90, 0, 0), major=28, minor=8)
     torus(_n(g, 'glow'), 0.2, 0.02, (0, -0.012, h + 0.2), 'lampshade', g, (90, 0, 0), major=28, minor=6)
@@ -1211,6 +1212,7 @@ def ring_light(name='ring_light', location=(0, 0, 0), rotation=0, h=1.6, obstacl
 def camera_tripod(name='camera', location=(0, 0, 0), rotation=0, h=1.45, obstacle=True, parent='root'):
     """Mirrorless camera with a lens on a tripod, lens pointing local -Y. Origin at the floor."""
     g = _g(name, location, rotation, obstacle, parent=parent)
+    g['gear'] = 'mirrorless_camera'  # baked gear: setGear skips a duplicate (docs/3D.md section 7)
     _tripod(g, h - 0.08, 0.32, 'metal_dark')
     box(_n(g, 'plate'), (0.07, 0.07, 0.02), (0, 0, h - 0.07), 'plastic_black', g, bevel=0.005)
     box(_n(g, 'body'), (0.13, 0.07, 0.09), (0, 0.01, h), 'plastic_black', g, bevel=0.012)
@@ -1226,6 +1228,7 @@ def camera_tripod(name='camera', location=(0, 0, 0), rotation=0, h=1.45, obstacl
 def softbox(name='softbox', location=(0, 0, 0), rotation=0, h=1.7, obstacle=True, parent='root'):
     """Photo softbox on a stand, facing local -Y (diffuser uses m_lampshade). Origin at the floor."""
     g = _g(name, location, rotation, obstacle, parent=parent)
+    g['gear'] = 'softbox_kit'  # baked gear: setGear skips a duplicate (docs/3D.md section 7)
     _tripod(g, h - 0.1, 0.33, 'metal_dark')
     # square frustum opening toward -Y (big end) with the white diffuser on it
     cyl(_n(g, 'box'), 0.32, 0.36, (0, 0.04, h + 0.1), 'plastic_black', g, (-90, 45, 0), verts=4, r2=0.08, bevel=0.01)

@@ -8,7 +8,7 @@ apartment (one warm window) with a delivery van unloading parcels, the corner Mc
 rooftop burger sign, a corner shop with a rooftop billboard (abstract shopping-bag icon), a small park with a bus
 stop, street lamps (l_* anchors), trees, traffic lights, cars. a_cam / a_cam_target frame it from the south-east
 with the upper third of a 16:9 frame left empty for the logo (vertical FOV 30, like the runtime camera); the
-runtime's orbit mode circles a_cam_target at a_cam's radius and height, so the fit is checked for every yaw.
+runtime's orbit mode keeps a_cam's elevation and FOV and refits the distance per yaw and aspect.
 """
 import math
 import os
@@ -206,7 +206,7 @@ def scene_points():
 
 
 def fit_orbit(points, az_deg=45.0, el_deg=32.0, fov_v=FOV, aspect=16 / 9, top=0.30, bottom=-0.92, side=0.94,
-              orbit_top=0.40, orbit_side=0.98):
+              orbit_top=0.40, orbit_side=0.98, yaws=tuple(range(0, 360, 15))):
     """Camera looking at T = (0, 0, h) from azimuth/elevation. At the default yaw every point must land inside NDC
     x in [-side, side], y in [bottom, top] (top = 0.3 keeps the upper third empty for the logo); at the other orbit
     yaws (the runtime circles T) the limits are a little looser (orbit_top, orbit_side). Returns (cam_pos, target)
@@ -220,7 +220,7 @@ def fit_orbit(points, az_deg=45.0, el_deg=32.0, fov_v=FOV, aspect=16 / 9, top=0.
         T_ = Vector((0, 0, h))
 
         def fits(dist):
-            for yaw in range(0, 360, 15):
+            for yaw in yaws:
                 lim_t, lim_s = (top, side) if yaw == 0 else (orbit_top, orbit_side)
                 a = math.radians(az_deg + yaw)
                 back = Vector((math.sin(a) * math.cos(el), -math.cos(a) * math.cos(el), math.sin(el)))
@@ -257,7 +257,10 @@ def fit_orbit(points, az_deg=45.0, el_deg=32.0, fov_v=FOV, aspect=16 / 9, top=0.
 
 
 pts = scene_points()
-cam_pos, cam_tgt = fit_orbit(pts, el_deg=27.0, bottom=-0.95)
+# a_cam = the default (16:9) title view: the block spans ~76% of the width, everything below NDC y 0.3 so the upper
+# third stays sky for the logo. Only the default yaw is constrained: the runtime's orbit refits every yaw itself
+# (src/three/camera.ts ORBIT), so the slow circle keeps the same size and the same empty top third.
+cam_pos, cam_tgt = fit_orbit(pts, el_deg=18.0, top=0.6, bottom=-1.0, side=0.8, yaws=(0,))
 print(f'[title_city] a_cam {tuple(round(c, 2) for c in cam_pos)} -> target {tuple(round(c, 2) for c in cam_tgt)}')
 B.anchor('a_cam_target', tuple(cam_tgt), 's')
 a_cam = B.anchor('a_cam', tuple(cam_pos), 's', fov=FOV)

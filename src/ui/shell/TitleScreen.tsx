@@ -1,9 +1,9 @@
 // Title screen: Continue / New game (name + difficulty + slot) / Load (3 slots, delete,
 // import JSON) / How to play, over the dusk city-block art.
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { ArrowLeft, BookOpen, FileUp, FolderOpen, Play, Plus, Trash2, Volume2, VolumeX, X, ShoppingBag } from 'lucide-react'
-import type { Difficulty, GameState } from '../../core/types'
+import type { Difficulty, GameState, PlayerLook } from '../../core/types'
 import { useUI } from '../../core/ui'
 import { createNewGame } from '../../core/newGame'
 import { deleteSave, importSave, listSaves, loadGame, saveGame, SLOT_COUNT, type SaveMeta } from '../../core/save'
@@ -16,6 +16,11 @@ import { HowToPlay } from './Overlays'
 import { useDismiss } from './common'
 import './shell.css'
 import './title.css'
+import { use3dPossible, use3dRoom } from './scene3d/session'
+import { DEFAULT_LOOK } from '../../three/looks'
+
+const TitleDiorama = lazy(() => import('./scene3d/TitleDiorama'))
+const LookEditor = lazy(() => import('./scene3d/LookEditor'))
 
 type View = 'menu' | 'new' | 'load' | 'help'
 const DIFFS: Difficulty[] = ['chill', 'normal', 'realistic']
@@ -38,6 +43,10 @@ export default function TitleScreen() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const muted = useUI(u => u.muted)
+  const live = use3dRoom()
+  const [liveReady, setLiveReady] = useState(false)
+  const onLiveReady = useCallback(() => setLiveReady(true), [])
+  const showLive = live && liveReady
 
   const refresh = useCallback(async () => {
     try {
@@ -84,7 +93,17 @@ export default function TitleScreen() {
 
   return (
     <div className="sh-title">
-      <div className="sh-title-bg" style={{ backgroundImage: `url("${roomImage('title')}"), linear-gradient(180deg, #c9b6ff 0%, #f3b8d8 45%, #ffd2a8 62%, #b9b3d6 63%, #a7a1c7 100%)` }} aria-hidden />
+      {live && <div className="sh-title-sky" aria-hidden />}
+      <div
+        className={clsx('sh-title-bg', showLive && 'is-hidden')}
+        style={{ backgroundImage: `url("${roomImage('title')}"), linear-gradient(180deg, #c9b6ff 0%, #f3b8d8 45%, #ffd2a8 62%, #b9b3d6 63%, #a7a1c7 100%)` }}
+        aria-hidden
+      />
+      {live && (
+        <Suspense fallback={null}>
+          <TitleDiorama onReady={onLiveReady} />
+        </Suspense>
+      )}
       <div className="sh-title-glow" aria-hidden />
       <div className="sh-title-sparkles" aria-hidden>
         {Array.from({ length: 14 }, (_, i) => (
@@ -196,14 +215,23 @@ function NewGamePanel({ saves, storageError, onBack }: { saves: (SaveMeta | null
   const [starting, setStarting] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const trimmed = name.trim()
+  // the "Look" step (Sims-style create-a-sim) needs the 3D preview; without it the default look is used
+  const lookStep = use3dPossible()
+  const [step, setStep] = useState<'you' | 'look'>('you')
+  const [look, setLook] = useState<PlayerLook>(DEFAULT_LOOK)
 
   const start = async () => {
     if (!trimmed || starting) return
+    if (lookStep && step === 'you') {
+      sfx.click()
+      setStep('look')
+      return
+    }
     setStarting(true)
     setErr(null)
     let st: GameState
     try {
-      st = createNewGame({ playerName: trimmed.slice(0, 24), difficulty })
+      st = createNewGame({ playerName: trimmed.slice(0, 24), difficulty, ...(lookStep ? { look } : {}) })
     } catch (e) {
       console.error('new game failed', e)
       setErr('Something went wrong setting up the world. Try again in a moment.')
@@ -219,6 +247,33 @@ function NewGamePanel({ saves, storageError, onBack }: { saves: (SaveMeta | null
     unlockAudio()
     sfx.levelUp()
     enterGame(st, chosenSlot)
+  }
+
+  if (lookStep && step === 'look') {
+    return (
+      <TitlePanel title="Your look" onBack={() => setStep('you')} wide>
+        <form
+          className="sh-newgame"
+          onSubmit={e => {
+            e.preventDefault()
+            void start()
+          }}
+        >
+          <Suspense fallback={<div className="sh-look-loading" />}>
+            <LookEditor value={look} onChange={setLook} />
+          </Suspense>
+          {err && <div className="sh-title-error">{err}</div>}
+          <div className="sh-panel-actions">
+            <button type="button" className="sh-btn sh-btn-ghost" onClick={() => setStep('you')}>
+              Back
+            </button>
+            <button type="submit" className="sh-btn sh-btn-primary sh-btn-lg" disabled={!trimmed || starting}>
+              {starting ? 'Clocking in…' : overwriting ? 'Overwrite & start' : 'Start your first shift'}
+            </button>
+          </div>
+        </form>
+      </TitlePanel>
+    )
   }
 
   return (
@@ -309,7 +364,7 @@ function NewGamePanel({ saves, storageError, onBack }: { saves: (SaveMeta | null
             Back
           </button>
           <button type="submit" className="sh-btn sh-btn-primary sh-btn-lg" disabled={!trimmed || starting}>
-            {starting ? 'Clocking in…' : overwriting ? 'Overwrite & start' : 'Start your first shift'}
+            {lookStep ? 'Next: your look' : starting ? 'Clocking in…' : overwriting ? 'Overwrite & start' : 'Start your first shift'}
           </button>
         </div>
       </form>

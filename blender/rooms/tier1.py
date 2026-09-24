@@ -93,8 +93,9 @@ shelf = F.wall_shelf(0.44, 'kitchen_shelf', location=R.wall_point('n', 0.93, 1.6
 X0.mini_shelf_items(shelf, -0.21, 0.21, -0.11, 0.0175, seed=4)
 R.on_wall(shelf, 'n')
 deco_n += [shelf, X0.light_switch('n', -0.57, 1.15), X1.coat_hooks('n', -0.85, 1.7)]
+# the hanging plant rides on the north wall's decor: it hides with the wall instead of floating in the cutaway
+deco_n.append(F.hanging_plant('hanging_plant', location=(2.2, HY - 0.35, 2.7), drop=0.75, seed=3))
 X0.gather('decor_n', 'n', deco_n)
-F.hanging_plant('hanging_plant', location=(2.2, HY - 0.35, 2.7), drop=0.75, seed=3)
 
 # ---- the kitchen table = staff desk 1 (folding table + laptop) ------------------------------------------------------
 sd = F.staff_desk_set(1, 'folding', location=(1.1, 0.25, 0), rotation=0, chair='folding', chair_mat='fabric_coral',

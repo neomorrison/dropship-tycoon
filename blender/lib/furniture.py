@@ -695,7 +695,20 @@ def workstation(style='cheap', name='computer', location=(0, 0, 0), rotation=0, 
         B.anchor(f'a_{anchors}_sit', (sh * 0.5, cy + 0.04, 0), 'n', frame=g)
         B.anchor(f'a_{anchors}_stand', (sh * 0.5, cy - 0.55, 0), 'n', frame=g)
     if gear_anchor:
-        B.anchor(gear_anchor, (-W / 2 + 0.25, -0.03, H), 's', frame=g, w=0.4, d=0.3)
+        # gear rule (docs/3D.md section 7, "Baked gear"): a main desk that already shows a computer tags the group
+        # with the gear id it stands for, so setGear never adds a duplicate; a bare desk names the laptop the
+        # runtime shows until setGear puts a computer there, so the desk is never empty (Hustle has no gear)
+        extras = {'w': 0.4, 'd': 0.3}
+        if n:
+            g['gear'] = 'workstation'
+        elif laptop_style:
+            g['gear'] = 'laptop_pro' if laptop_style == 'pro' else 'laptop_old'
+        else:
+            # bare desk: the laptop default (and any computer from setGear) sits `center` m along the anchor's +X,
+            # i.e. in the middle of the desk, with small gear (phones, mic) in the gear zone beside it
+            extras['default'] = 'laptop_old'
+            extras['center'] = round(W / 2 - 0.25, 3)
+        B.anchor(gear_anchor, (-W / 2 + 0.25, -0.03, H), 's', frame=g, **extras)
     return g
 
 
@@ -1200,6 +1213,19 @@ def ceiling_lamp(style='pendant', name='ceiling_lamp', location=(0, 0, 2.7), rot
     if light_anchor:
         B.light(light_anchor, bulb, 'ceiling', '#ffe2b8', 1.5, 6.0, frame=g)
     return g
+
+
+def ceiling_light(style='pendant', name='ceiling_lamp', location=(0, 0, 2.7), rotation=0, drop=0.7, mat=None,
+                  light_anchor=None, parent='root', color='#ffe2b8', intensity=1.5, distance=6.0):
+    """What a room places instead of a hanging fixture: the cutaway diorama has no ceiling, so a pendant, globe or
+    bare bulb on a cord reads as an object floating in mid-air. Creates only the light anchor (when
+    `light_anchor` is given) at the height where the bulb would hang; takes ceiling_lamp's arguments so a room can
+    swap one call for the other. Returns the light empty or None."""
+    if not light_anchor:
+        return None
+    z = {'flush': -0.12, 'pendant': -drop - 0.06, 'globe': -drop - 0.14, 'cage': -drop - 0.08}.get(style, -drop - 0.03)
+    x, y, zc = location
+    return B.light(light_anchor, (x, y, zc + z), 'ceiling', color, intensity, distance, parent=parent)
 
 
 # ----------------------------------------------------------------------------------------------------------------

@@ -3,7 +3,7 @@ import * as THREE from 'three'
 import type { GLTF } from './loader'
 import type { Room } from './room'
 import type { GearItem } from './types'
-import { boxCapacity, boxCount, DESK_GEAR, FLOOR_GEAR, gearNode, regionSlotList, type BoxRegion, type BoxSlot } from './math'
+import { boxCapacity, boxCount, COMPUTER_GEAR, planGear, regionSlotList, type BoxRegion, type BoxSlot } from './math'
 
 export class Props {
   readonly group = new THREE.Group()
@@ -22,22 +22,13 @@ export class Props {
     for (const g of this.gear) g.obj.removeFromParent()
     this.gear = []
     if (!room || !props) return
-    // desk items spread along the desk anchor's width; floor items take a_gear_floor_1, _2 in order
-    const deskItems: { id: string; anchor: string }[] = []
-    const floorAnchors = room.anchorsWithPrefix('gear_floor_').map(a => a.name)
-    let floorI = 0
-    const placed: { node: string; anchor: string; slot: number; of: number }[] = []
-    for (const it of items) {
-      const node = gearNode(it.id)
-      const anchor = it.anchor ? it.anchor.replace(/^a_/, '') : DESK_GEAR.has(node) ? 'gear_desk' : FLOOR_GEAR.has(node) ? floorAnchors[floorI++] : 'gear_desk'
-      if (!anchor) continue
-      if (anchor === 'gear_desk') deskItems.push({ id: node, anchor })
-      else placed.push({ node, anchor, slot: 0, of: 1 })
-    }
-    // desk: computers in the middle, phones/mics at the sides
-    const order = (n: string) => (/laptop|workstation/.test(n) ? 0 : 1)
-    deskItems.sort((a, b) => order(a.id) - order(b.id))
-    deskItems.forEach((d, i) => placed.push({ node: d.id, anchor: d.anchor, slot: i, of: deskItems.length }))
+    const desk = room.anchor('gear_desk')
+    const placed = planGear(items, {
+      baked: room.bakedGear,
+      deskDefault: typeof desk?.extras.default === 'string' ? desk.extras.default : null,
+      hasDesk: !!desk,
+      floorAnchors: room.anchorsWithPrefix('gear_floor_').map(a => a.name),
+    })
     for (const p of placed) {
       const a = room.anchor(p.anchor)
       const src = props.scene.getObjectByName(p.node)
@@ -49,12 +40,30 @@ export class Props {
       holder.name = `gear_${p.node}`
       holder.position.copy(a.pos)
       holder.quaternion.copy(a.quat)
-      if (p.of > 1) {
-        const w = Number(a.extras.w) || 1.0
-        // centre item first, then alternate right / left
-        const offs = [0, 0.32, -0.32, 0.55, -0.55].map(v => v * Math.min(1, w / 1.2))
-        obj.position.x = offs[p.slot] ?? 0
-        if (p.slot > 0) obj.rotation.y = (p.slot % 2 ? -1 : 1) * 0.25
+      if (p.anchor === 'gear_desk') {
+        // a_gear_desk (anchor-local: +X toward the desk middle, +Z toward the sitter). A bare desk names `center`
+        // (metres to the desk middle): the computer sits there and small gear in the gear zone beside it. On a
+        // desk that already shows monitors the zone is small: the computer stays on the anchor, small gear in front.
+        const center = Number(a.extras.center) || 0
+        const hasComputer = placed.some(q => q.anchor === 'gear_desk' && COMPUTER_GEAR.has(q.node))
+        if (COMPUTER_GEAR.has(p.node)) {
+          obj.position.set(center, 0, center ? 0 : -0.04)
+          if (center) {
+            // centre the prop's footprint on the desk and shrink a wide one (workstation) to fit the desk top
+            const bb = new THREE.Box3().setFromObject(src)
+            const deskW = center * 2 + 0.5
+            const pw = bb.max.x - bb.min.x
+            const k = pw > deskW - 0.08 ? (deskW - 0.08) / pw : 1
+            obj.scale.setScalar(k)
+            obj.position.x = center - ((bb.min.x + bb.max.x) / 2 - src.getWorldPosition(new THREE.Vector3()).x) * k
+          }
+        }
+        else {
+          const k = placed.filter(q => q.anchor === 'gear_desk' && !COMPUTER_GEAR.has(q.node)).findIndex(q => q.node === p.node)
+          const xs = center ? [-0.06, 0.1, -0.2] : [-0.12, 0.1, 0.0]
+          obj.position.set(xs[k % 3] ?? 0, 0, hasComputer ? 0.15 : 0.04)
+          obj.rotation.y = (k % 2 ? -1 : 1) * 0.22
+        }
       }
       holder.add(obj)
       this.group.add(holder)
@@ -148,7 +157,7 @@ export class Props {
     this.writeBoxes()
   }
 
-  get stats() { return { gear: this.gear.length, boxes: this.boxShown, capacity: this.slots.length } }
+  get stats() { return { gear: this.gear.length, gearIds: this.gear.map(g => g.key), boxes: this.boxShown, capacity: this.slots.length } }
 
   dispose() {
     for (const g of this.gear) g.obj.removeFromParent()

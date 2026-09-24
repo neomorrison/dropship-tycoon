@@ -9,6 +9,7 @@ import { updateCutaway } from './cutaway'
 import { Glow, Picker, type Hit } from './picking'
 import { Actor, type ActorEnv } from './actors'
 import { Props } from './props'
+import type { Neighbour } from './crowd'
 import { clamp, easeOut, Reservations } from './math'
 
 let glCache: boolean | null = null
@@ -105,6 +106,7 @@ export class Stage {
   private savedStyle: { touchAction: string; opacity: string; transition: string } | null = null
   private tmpV = new THREE.Vector3()
   private frameCount = 0
+  private crowd: Neighbour[] = []
 
   constructor(opts: StageOptions) {
     this.opts = opts
@@ -117,6 +119,8 @@ export class Stage {
       character: () => this.character,
       props: () => this.propsGltf,
       shadowGeo: this.shadowGeo, shadowMat: this.shadowMat, proxyGeo: this.proxyGeo, proxyMat: this.proxyMat,
+      crowd: () => this.crowd,
+      waitSpots: new Map(),
     }
     this.scene.add(this.world)
     this.world.add(this.props.group)
@@ -301,12 +305,13 @@ export class Stage {
     this.world.add(room.scene)
     room.setStaffDesks(this.staffDesks)
     this.rig.mode = this.rig.mode === 'orbit' ? 'orbit' : 'room'
-    this.rig.setRoom(room.fitBox, room.camera)
+    this.applyRig(room)
     this.lighting?.setRoom(room)
     this.lighting?.setHour(this.hour, true)
     const dir = this.rig.horizontalDir(new THREE.Vector2())
     updateCutaway(room, dir, 0, true)
     this.reservations.clear()
+    this.env.waitSpots.clear()
     for (const a of this.actors.values()) a.resnap()
     for (const [id, t] of this.pendingTasks) { this.actors.get(id)?.setTask(t, true); this.pendingTasks.delete(id) }
     this.props.setRoom(room, this.propsGltf)
@@ -335,7 +340,17 @@ export class Stage {
   setCameraMode(mode: 'room' | 'orbit') {
     if (this.rig.mode === mode) return
     this.rig.mode = mode
-    if (this.room) this.rig.setRoom(this.room.fitBox, this.room.camera)
+    if (this.room) this.applyRig(this.room)
+  }
+
+  /** camera framing for a room: fit box, title orbit (a_cam) or the studio's one-person turntable */
+  private applyRig(room: Room) {
+    const spawn = room.anchor('spawn')
+    this.rig.setRoom(room.fitBox, room.camera, {
+      studio: room.studio ? { center: spawn ? spawn.pos.clone().setY(0) : new THREE.Vector3() } : null,
+      points: room.framePoints,
+    })
+    this.world.rotation.y = this.rig.turntable
   }
 
   rotate(stepDeg: number) { this.rig.rotate(stepDeg) }
@@ -575,11 +590,15 @@ export class Stage {
     const r = this.renderer
     if (!r || this.disposed) return
     this.rig.update(dt)
+    this.world.rotation.y = this.rig.turntable
     const room = this.room
     if (room) {
       updateCutaway(room, this.rig.horizontalDir(new THREE.Vector2()), dt)
       this.lighting?.update(dt)
       r.toneMappingExposure = this.lighting?.exposure ?? 1
+      // crowd snapshot (positions from the previous frame) for local avoidance between walkers
+      this.crowd.length = 0
+      for (const a of this.actors.values()) { const n = a.neighbour(); if (n) this.crowd.push(n) }
       for (const a of this.actors.values()) a.update(dt)
       this.props.update(dt * Math.max(0.5, this.speed || 1))
     }

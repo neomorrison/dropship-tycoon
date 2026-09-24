@@ -7,6 +7,7 @@ import type { ActorSpec, ActorTask, AnimName, Emote, Look, Mood } from './types'
 import type { GLTF } from './loader'
 import type { Anchor, Room } from './room'
 import type { P2 } from './navgrid'
+import { CROWD, doorwayBusy, standingBlockers, steer, type Neighbour } from './crowd'
 import { installGlow } from './picking'
 import { accNodes, hairNode, lookColors, OPTIONAL_NODES, resolveLook, topNode } from './looks'
 import {
@@ -35,6 +36,10 @@ export interface ActorEnv {
   shadowMat: THREE.Material
   proxyGeo: THREE.BufferGeometry
   proxyMat: THREE.Material
+  /** everyone standing or walking in the room this frame (see Actor.neighbour), for local avoidance */
+  crowd(): readonly Neighbour[]
+  /** spots people are queueing at for a taken seat (actor id → floor point), so queuers spread out */
+  waitSpots: Map<string, P2>
 }
 
 type Posture = 'stand' | 'sit' | 'lie'
@@ -42,7 +47,7 @@ type Posture = 'stand' | 'sit' | 'lie'
 type Step =
   | { t: 'appear'; pos: THREE.Vector3; yaw: number }
   | { t: 'standup'; to: THREE.Vector3; yaw: number }
-  | { t: 'walk'; to: P2; path?: P2[]; i?: number; soft?: boolean }
+  | { t: 'walk'; to: P2; path?: P2[]; i?: number; soft?: boolean; blockT?: number; ghost?: number; waiting?: boolean; aheadT?: number; replans?: number }
   | { t: 'glide'; pos: THREE.Vector3; yaw: number; anim: string; posture: Posture; dur: number; turnFirst: boolean; from?: THREE.Vector3; fromYaw?: number; el?: number; turned?: boolean }
   | { t: 'act'; anim: string }
   | { t: 'linger'; anim: string; dur: number; el?: number }
@@ -121,6 +126,9 @@ export class Actor {
   private seatExit: { pos: THREE.Vector3; yaw: number } | null = null
   yaw = 0
   private moveSpeed = 0
+  /** last walking direction (unit, floor plane) for the crowd */
+  private dirX = 0
+  private dirZ = 0
   hidden = true
   private opacity = 0
   private fadeTarget = 0
@@ -465,6 +473,18 @@ export class Actor {
     this.held = { name: prop, obj }
   }
 
+  /**
+   * This person as a crowd neighbour for other walkers: null while hidden, fading, seated or lying (seats are
+   * reserved and never in a walking path). Walking = on a walk step and actually moving.
+   */
+  neighbour(): Neighbour | null {
+    if (this.hidden || this.opacity < 0.5 || this.posture !== 'stand') return null
+    const s = this.steps[0]
+    if (s && s.t === 'glide' && s.posture !== 'stand') return null
+    const moving = !!s && s.t === 'walk' && !s.waiting && this.moveSpeed > 0.05
+    return { id: this.id, x: this.obj.position.x, z: this.obj.position.z, dirX: moving ? this.dirX : 0, dirZ: moving ? this.dirZ : 0, moving }
+  }
+
   /** world-space head position (for bubbles) */
   headPos(out: THREE.Vector3): THREE.Vector3 {
     if (this.head) { this.head.getWorldPosition(out); out.y += 0.1 } else out.copy(this.obj.position).setY(this.obj.position.y + 1.6)
@@ -476,7 +496,7 @@ export class Actor {
   // -------------------------------------------------------------------------
   private anchor(name: string): Anchor | undefined { return this.env.room()?.anchor(name) }
 
-  private releaseReservation() { this.env.reservations.release(this.id); this.wanderAnchor = null }
+  private releaseReservation() { this.env.reservations.release(this.id); this.env.waitSpots.delete(this.id); this.wanderAnchor = null }
 
   private plan(snap: boolean) {
     const room = this.env.room()
@@ -492,10 +512,10 @@ export class Actor {
       A = this.anchor(target)
       if (A && !res.reserve(A.name, this.id)) {
         // someone else holds it: wait nearby
-        if (snap || this.hidden) this.snapTo(this.waitPoint(A, room), A.yaw, 'stand')
+        const wp = this.waitPoint(A, room)
+        if (snap || this.hidden) this.snapTo(wp, A.yaw, 'stand')
         this.showIfHidden(snap)
         this.prefixStandup()
-        const wp = this.waitPoint(A, room)
         this.steps.push({ t: 'walk', to: { x: wp.x, z: wp.z } }, { t: 'wait', anchor: A.name })
         return
       }
@@ -547,7 +567,11 @@ export class Actor {
           const a = this.pickWander(room)
           const pos = a ? a.pos.clone() : this.spawnPos(room)
           if (snap || !this.hidden) { this.snapTo(pos, a?.yaw ?? 0, 'stand'); this.showIfHidden(snap) }
-          else this.arrive(room)
+          else {
+            this.arrive(room)
+            // walk in from the door to the wander spot before lingering (not in the doorway)
+            if (a) this.steps.push({ t: 'walk', to: { x: a.pos.x, z: a.pos.z }, soft: true }, { t: 'glide', pos: a.pos.clone(), yaw: a.yaw, anim: mi, posture: 'stand', dur: 0, turnFirst: false })
+          }
           if (a) { this.steps.push({ t: 'linger', anim: mi, dur: 3 + this.rand() * 5 }) }
         } else this.prefixStandup()
         this.steps.push({ t: 'wander' })
@@ -589,7 +613,21 @@ export class Actor {
     const dir = new THREE.Vector3(Math.sin(A.yaw), 0, Math.cos(A.yaw))
     const p = A.pos.clone().addScaledVector(dir, -1.1)
     const q = room.nav.nearestFree({ x: p.x, z: p.z }) ?? { x: p.x, z: p.z }
-    return new THREE.Vector3(q.x, 0, q.z)
+    // several people waiting for the same seat queue side by side instead of standing inside each other
+    const others = this.env.crowd().filter(o => o.id !== this.id)
+    const spots = [...this.env.waitSpots].filter(([id]) => id !== this.id).map(([, p]) => p)
+    const gap = CROWD.radius * 2 + 0.1
+    const taken = (x: number, z: number) => others.some(o => Math.hypot(o.x - x, o.z - z) < gap) || spots.some(o => Math.hypot(o.x - x, o.z - z) < gap)
+    const claim = (x: number, z: number) => { this.env.waitSpots.set(this.id, { x, z }); return new THREE.Vector3(x, 0, z) }
+    if (!taken(q.x, q.z)) return claim(q.x, q.z)
+    for (let ring = 1; ring <= 3; ring++) {
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * Math.PI * 2 + ring * 0.4
+        const x = q.x + Math.cos(a) * 0.65 * ring, z = q.z + Math.sin(a) * 0.65 * ring
+        if (room.nav.isFree({ x, z }) && !taken(x, z)) return claim(x, z)
+      }
+    }
+    return claim(q.x, q.z)
   }
 
   private nearFree(p: THREE.Vector3, room: Room): THREE.Vector3 {
@@ -784,7 +822,10 @@ export class Actor {
       }
       case 'walk': {
         if (!s.path) {
-          const p = room.nav.findPath({ x: pos.x, z: pos.z }, s.to)
+          // plan around people standing still (a copy of the walk grid with them blocked), else the plain grid
+          const blockers = standingBlockers({ id: this.id, x: pos.x, z: pos.z }, s.to, this.env.crowd())
+          const p = (blockers.length ? room.nav.withBlockers(blockers, CROWD.radius + 0.1).findPath({ x: pos.x, z: pos.z }, s.to) : null)
+            ?? room.nav.findPath({ x: pos.x, z: pos.z }, s.to)
           s.path = p ?? [{ x: pos.x, z: pos.z }, s.to]
           s.i = 1
           if (s.path.length < 2 || Math.hypot(s.path[s.path.length - 1].x - pos.x, s.path[s.path.length - 1].z - pos.z) < 0.05) return true
@@ -798,11 +839,37 @@ export class Actor {
           let px = pos.x, pz = pos.z
           for (let i = s.i!; i < path.length; i++) { remaining += Math.hypot(path[i].x - px, path[i].z - pz); px = path[i].x; pz = path[i].z }
         }
+        // local avoidance: slow / wait / side-step around people, hold before a busy doorway (crowd.ts)
+        const next = path[Math.min(s.i!, path.length - 1)]
+        const hx = next.x - pos.x, hz = next.z - pos.z, hl = Math.hypot(hx, hz)
+        if (hl > 1e-4) { this.dirX = hx / hl; this.dirZ = hz / hl }
+        let scale = 1, sideX = 0, sideZ = 0
+        if ((s.ghost ?? 0) > 0) s.ghost! -= dt
+        else {
+          const others = this.env.crowd()
+          if (others.length > 1) {
+            const me = { id: this.id, x: pos.x, z: pos.z }
+            const rest = [me, ...path.slice(s.i!)]
+            if (room.doorPoints.some(d => doorwayBusy(me, rest, d, others))) scale = 0
+            else {
+              const st = steer({ ...me, dirX: this.dirX, dirZ: this.dirZ }, others, remaining)
+              scale = st.speed; sideX = st.sideX; sideZ = st.sideZ
+              // someone stopped in the way after we planned: plan again around them (a few times per walk at most)
+              s.aheadT = st.standingAhead ? (s.aheadT ?? 0) + dt : 0
+              if (s.aheadT > 0.35 && (s.replans ?? 0) < 3 && remaining > 0.8) { s.replans = (s.replans ?? 0) + 1; s.aheadT = 0; s.path = undefined; return false }
+            }
+          }
+          // nobody waits forever: after a few seconds stuck, walk through for a moment (Sims-style)
+          if (scale < 0.1) { s.blockT = (s.blockT ?? 0) + dt; if (s.blockT > 3.2) { s.ghost = 1.6; s.blockT = 0 } }
+          else s.blockT = Math.max(0, (s.blockT ?? 0) - dt)
+        }
         const endV = s.soft ? 0.55 : 0
         const brake = Math.sqrt(endV * endV + 2 * 2.4 * remaining)
-        const want = Math.min(vmax, brake)
+        const want = Math.min(vmax, brake) * scale
         this.moveSpeed += (want - this.moveSpeed) * damp(want > this.moveSpeed ? 5 : 12, dt)
-        let travel = Math.max(0.05, this.moveSpeed) * dt
+        const holding = scale < 0.05
+        if (holding !== !!s.waiting) { s.waiting = holding; this.play(holding ? this.moodIdle() : 'walk', 0.2) }
+        let travel = holding ? this.moveSpeed * dt : Math.max(0.05, this.moveSpeed) * dt
         pos.y += (0 - pos.y) * damp(10, dt) // walking happens on the floor
         while (travel > 0 && s.i! < path.length) {
           const tp = path[s.i!]
@@ -810,6 +877,11 @@ export class Actor {
           const d = Math.hypot(dx, dz)
           if (d <= travel) { pos.x = tp.x; pos.z = tp.z; travel -= d; s.i!++ }
           else { pos.x += (dx / d) * travel; pos.z += (dz / d) * travel; travel = 0 }
+        }
+        // side-step (only onto free floor, and not in the last few centimetres before the goal)
+        if ((sideX || sideZ) && remaining > CROWD.radius) {
+          const nx = pos.x + sideX * dt, nz = pos.z + sideZ * dt
+          if (room.nav.isFree({ x: nx, z: nz })) { pos.x = nx; pos.z = nz }
         }
         // face along the path (look slightly ahead)
         const tp = path[Math.min(s.i!, path.length - 1)]

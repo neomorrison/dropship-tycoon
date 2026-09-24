@@ -908,15 +908,17 @@ def _room_info(root):
     return None
 
 
-def _camera(name, fov=28.0, ortho=None):
+def _camera(name, fov=28.0, ortho=None, sensor_fit='HORIZONTAL'):
+    """Preview camera. `fov` is horizontal by default; sensor_fit='VERTICAL' makes it the vertical FOV like three.js
+    (PerspectiveCamera.fov), which the room stills use so they match the runtime camera."""
     cd = bpy.data.cameras.new('_prev_' + name)
+    cd.sensor_fit = sensor_fit
     if ortho:
         cd.type = 'ORTHO'
         cd.ortho_scale = ortho
     else:
         cd.lens_unit = 'FOV'
         cd.angle = math.radians(fov)
-    cd.sensor_fit = 'HORIZONTAL'
     cd.clip_start = 0.05
     cd.clip_end = 500
     co = _prev_obj(name, cd)
@@ -932,8 +934,12 @@ def fit_camera(cam, points, azimuth_deg, elevation_deg, res, margin=0.06, target
     q = (-back).to_track_quat('-Z', 'Y')
     R = q.to_matrix()
     right, up = R @ Vector((1, 0, 0)), R @ Vector((0, 1, 0))
-    tan_h = math.tan(cam.data.angle / 2)
-    tan_v = tan_h * res[1] / res[0]
+    if cam.data.sensor_fit == 'VERTICAL':
+        tan_v = math.tan(cam.data.angle / 2)
+        tan_h = tan_v * res[0] / res[1]
+    else:
+        tan_h = math.tan(cam.data.angle / 2)
+        tan_v = tan_h * res[1] / res[0]
     pts = [Vector(p) for p in points]
     t = target or sum(pts, Vector()) / len(pts)
     Rt = R.transposed()

@@ -185,6 +185,24 @@ export class NavGrid {
     return null
   }
 
+  /**
+   * A copy of this grid with extra round blockers (people standing still), for planning a walk around them. Cells
+   * within `radius` of each point (plus the usual corner rule) are blocked; components are recomputed.
+   */
+  withBlockers(points: readonly P2[], radius = 0.3): NavGrid {
+    const g = new NavGrid({ minX: this.x0, maxX: this.x0 + this.cols * this.cell, minZ: this.z0, maxZ: this.z0 + this.rows * this.cell }, this.cell)
+    g.blocked.set(this.blocked)
+    for (const p of points) {
+      const a = g.cellOf({ x: p.x - radius, z: p.z - radius }), b = g.cellOf({ x: p.x + radius, z: p.z + radius })
+      for (let r = a.r; r <= b.r; r++) for (let c = a.c; c <= b.c; c++) {
+        const q = g.center(c, r)
+        if (Math.hypot(q.x - p.x, q.z - p.z) <= radius) g.blocked[g.idx(c, r)] = 1
+      }
+    }
+    g.finalize()
+    return g
+  }
+
   componentAt(p: P2): number {
     this.ensure()
     const { c, r } = this.cellOf(p)

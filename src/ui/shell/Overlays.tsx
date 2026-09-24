@@ -1,8 +1,8 @@
 // Full-screen overlays: Settings, How to play, Daily report.
-import { useCallback, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { lazy, Suspense, useCallback, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { BookOpen, Download, FileUp, Keyboard, LogOut, Save, SlidersHorizontal, Volume2, X, BarChart3, Gamepad2, ChevronLeft, ChevronRight } from 'lucide-react'
-import type { GameState } from '../../core/types'
+import { BookOpen, Download, FileUp, Keyboard, LogOut, Save, SlidersHorizontal, Volume2, X, BarChart3, Gamepad2, ChevronLeft, ChevronRight, Box, Shirt } from 'lucide-react'
+import type { GameState, PlayerLook } from '../../core/types'
 import { act, getGS, useGS } from '../../core/store'
 import { openSite, useUI, usePauseWhileMounted } from '../../core/ui'
 import { exportSave, importSave, saveGame } from '../../core/save'
@@ -15,6 +15,11 @@ import { isAutopilot, setAutopilot } from '../../sim/life'
 import { enterGame, importErrorText, quitToTitle } from './actions'
 import { useShell, useShellPrefs, pushToast } from './shellStore'
 import { recapInsight } from './recap'
+import { use3dPossible } from './scene3d/session'
+import { DEFAULT_LOOK, resolveLook } from '../../three/looks'
+import type { GraphicsPref } from './shellStore'
+
+const LookEditor = lazy(() => import('./scene3d/LookEditor'))
 
 export default function Overlays() {
   const overlay = useUI(u => u.overlay)
@@ -22,6 +27,7 @@ export default function Overlays() {
   if (overlay === 'settings') return <SettingsOverlay onClose={close} />
   if (overlay === 'help') return <HelpOverlay onClose={close} />
   if (overlay === 'daily_report') return <DailyReportOverlay onClose={close} />
+  if (overlay === 'look') return <LookOverlay onClose={close} />
   return null
 }
 
@@ -95,6 +101,9 @@ function SettingsOverlay({ onClose }: { onClose: () => void }) {
   const autopilot = useGS(s => isAutopilot(s))
   const coachEnabled = useGS(s => s.coach.enabled)
   const recapToasts = useShellPrefs(p => p.recapToasts)
+  const room3d = useShellPrefs(p => p.room3d)
+  const graphics = useShellPrefs(p => p.graphics)
+  const can3d = use3dPossible()
   const setPrefs = useShellPrefs(p => p.set)
 
   const [saving, setSaving] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
@@ -193,6 +202,42 @@ function SettingsOverlay({ onClose }: { onClose: () => void }) {
         </Row>
       </section>
 
+      {can3d && (
+        <section className="sh-set-sec">
+          <h3>
+            <Box size={15} /> Room
+          </h3>
+          <Row title="3D room" desc="Walk around a live room. Off shows the painted one.">
+            <Switch checked={room3d} onChange={v => setPrefs({ room3d: v })} label="3D room" />
+          </Row>
+          <Row title="Graphics" desc="Auto picks Low on phones and small screens.">
+            <div className="sh-seg sh-set-seg" role="radiogroup" aria-label="Graphics">
+              {(['auto', 'high', 'low'] as GraphicsPref[]).map(g => (
+                <button
+                  key={g}
+                  type="button"
+                  role="radio"
+                  aria-checked={graphics === g}
+                  className={clsx('sh-seg-btn', graphics === g && 'is-active')}
+                  disabled={!room3d}
+                  onClick={() => {
+                    setPrefs({ graphics: g })
+                    sfx.click()
+                  }}
+                >
+                  {g === 'auto' ? 'Auto' : g === 'high' ? 'High' : 'Low'}
+                </button>
+              ))}
+            </div>
+          </Row>
+          <Row title="Your look" desc="Hair, outfit, the works.">
+            <button type="button" className="sh-btn sh-btn-ghost sh-btn-sm" onClick={() => useUI.getState().set({ overlay: 'look' })}>
+              <Shirt size={14} /> Edit look
+            </button>
+          </Row>
+        </section>
+      )}
+
       <section className="sh-set-sec">
         <h3>
           <Save size={15} /> Save
@@ -271,6 +316,11 @@ function SettingsOverlay({ onClose }: { onClose: () => void }) {
           <span>
             <kbd>Esc</kbd> Close computer or menu
           </span>
+          {can3d && room3d && (
+            <span>
+              <kbd>Q</kbd> <kbd>E</kbd> Rotate the room
+            </span>
+          )}
         </div>
         <button
           type="button"
@@ -282,6 +332,41 @@ function SettingsOverlay({ onClose }: { onClose: () => void }) {
           <BookOpen size={14} /> How to play
         </button>
       </section>
+    </OverlayShell>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Change look (from Settings or the player's needs card in the room)
+// ---------------------------------------------------------------------------
+function LookOverlay({ onClose }: { onClose: () => void }) {
+  const saved = useGS(s => s.player.look)
+  const [look, setLook] = useState<PlayerLook>(() => resolveLook(saved ?? DEFAULT_LOOK))
+  const can3d = use3dPossible()
+  if (!can3d) return null
+  return (
+    <OverlayShell title="Your look" icon={<Shirt size={18} />} onClose={onClose} wide className="sh-ov-look">
+      <Suspense fallback={<div className="sh-look-loading" />}>
+        <LookEditor value={look} onChange={setLook} />
+      </Suspense>
+      <div className="sh-set-btns sh-look-save">
+        <button type="button" className="sh-btn sh-btn-ghost" onClick={onClose}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="sh-btn sh-btn-primary"
+          onClick={() => {
+            act(s => {
+              s.player.look = { ...look, ...(look.acc ? { acc: [...look.acc] } : {}) }
+            })
+            sfx.levelUp()
+            onClose()
+          }}
+        >
+          Looking good
+        </button>
+      </div>
     </OverlayShell>
   )
 }

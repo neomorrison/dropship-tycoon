@@ -8,7 +8,7 @@ A 12 x 9 m single-storey open-plan house seen from the south-east. Zones (north 
   N   front door + entry, kitchen run + tall fridge, island (the "product set")
   W   founder office (3-monitor desk under a window, ring-light / tripod spots)
   SW  living (TV on the west wall, couch, coffee table, rug)
-  S   dining table under a pendant
+  S   dining table
   E   converted garage: concrete floor, roll-up door (east wall), metal shelving = `garage` with the stock
       regions a_boxes_*, packing table, and the 5-desk team bench ("the garage office").
 """
@@ -104,9 +104,9 @@ F.fridge('tall', location=(1.8, Y - 0.36, 0), rotation=B.against('n'), anchors=T
 F.kitchen_island(2.0, 0.9, 'island', location=(0.15, 2.25, 0), style='wood', counter_mat='plastic_white',
                  stools=3, stool_mat='fabric_mustard')
 X4.product_set('island_set', location=(0.15, 2.25, 0.9))
-F.ceiling_lamp('pendant', 'pendant_island_1', location=(-0.45, 2.25, 2.7), drop=0.95, mat='fabric_mustard',
+F.ceiling_light('pendant', 'pendant_island_1', location=(-0.45, 2.25, 2.7), drop=0.95, mat='fabric_mustard',
                light_anchor='l_kitchen')
-F.ceiling_lamp('pendant', 'pendant_island_2', location=(0.75, 2.25, 2.7), drop=0.95, mat='fabric_mustard')
+F.ceiling_light('pendant', 'pendant_island_2', location=(0.75, 2.25, 2.7), drop=0.95, mat='fabric_mustard')
 
 # ---- founder office (west wall, under the window) ----------------------------------------------------------------------
 F.workstation('l_shaped', 'computer', location=(-X + 0.34, -0.15, 0), rotation=B.against('w'), monitors=3,
@@ -129,7 +129,7 @@ F.potted_plant('monstera', 'plant_big', location=(-1.9, -Y + 0.62, 0), seed=6)
 F.dining_table('rect', 4, 'dining_table', location=(-0.35, -2.7, 0), rotation=0, mat='wood_light',
                chair_style='wood', anchors_eat='a_eat_sit', place_settings=False)
 X4.table_spread('table_spread', location=(-0.35, -2.7, 0.75))
-F.ceiling_lamp('globe', 'pendant_dining', location=(-0.35, -2.7, 2.7), drop=0.9, light_anchor='l_dining')
+F.ceiling_light('globe', 'pendant_dining', location=(-0.35, -2.7, 2.7), drop=0.9, light_anchor='l_dining')
 F.bean_bag('bean_bag', location=(0.95, -3.95, 0), rotation=150, mat='fabric_mustard')
 X4.robot_vacuum('robot_vacuum', location=(0.9, -0.6, 0), rotation=35)
 
@@ -166,9 +166,9 @@ for n, xx, side, mons, lap, cm in staff_cfg:
 F.potted_plant('snake', 'plant_bench', location=(5.35, CY - 0.55, 0), seed=9)
 F.whiteboard(1.3, 0.9, 'whiteboard', location=(4.55, 0.5, 0), rotation=-8, seed=4)
 F.water_cooler('water_cooler', location=(X - 0.3, 0.2, 0), rotation=B.against('e'))
-F.ceiling_lamp('cage', 'garage_lamp_1', location=(4.1, 2.4, 2.7), drop=0.45, mat='metal_dark',
+F.ceiling_light('cage', 'garage_lamp_1', location=(4.1, 2.4, 2.7), drop=0.45, mat='metal_dark',
                light_anchor='l_garage')
-F.ceiling_lamp('cage', 'garage_lamp_2', location=(4.25, CY, 2.7), drop=0.45, mat='metal_dark',
+F.ceiling_light('cage', 'garage_lamp_2', location=(4.25, CY, 2.7), drop=0.45, mat='metal_dark',
                light_anchor='l_team')
 X4.bike('bike', location=(X - 0.35, -3.75, 0), rotation=0)
 
@@ -201,8 +201,6 @@ X4.finish(root,
           reparent={'island_set': 'island', 'table_spread': 'dining_table', 'laundry_floor': 'rug_bed'},
           merges={'floor_decor': (['rug_bed', 'rug_living', 'rug_dining', 'doormat', 'garage_floor',
                                    'robot_vacuum', 'slippers'], {}),
-                  'ceiling_lights': (['pendant_island_1', 'pendant_island_2', 'pendant_dining', 'garage_lamp_1',
-                                      'garage_lamp_2'], {}),
                   'garage': (['shelving_1', 'shelving_2', 'shelving_3'], {'interact': 'garage', 'obstacle': True}),
                   'kitchen_fridge': (['kitchen', 'fridge'], {'interact': 'fridge', 'obstacle': True}),
                   'nightstands': (['nightstand_l', 'nightstand_r'], {'obstacle': True}),

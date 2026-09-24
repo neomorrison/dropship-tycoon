@@ -46,7 +46,9 @@ def clothes_rack(name='clothes_rack', location=(0, 0, 0), rotation=0, w=1.0, h=1
 def skateboard(name='skateboard', location=(0, 0, 0), rotation=0, deck='fabric_teal', lean=True, parent='root'):
     """Skateboard leaning against a wall (local +Y) on its tail, or flat on the floor (lean=False)."""
     g = _g(name, location, rotation, False, parent=parent)
-    inner = B.group(_n(g, 'tilt'), (0, 0, 0), (-72, 0, 0) if lean else (0, 0, 0), parent=g)
+    # leaning: the tail sits 0.25 m out from the wall and the nose tips back against it (+72 deg about X lifts the
+    # deck's +Y end UP; the old -72 swung it down through the floor, outside the wall)
+    inner = B.group(_n(g, 'tilt'), (0, -0.25, 0) if lean else (0, 0, 0), (72, 0, 0) if lean else (0, 0, 0), parent=g)
     zc = 0.1 if not lean else 0.02
     box(_n(inner, 'deck'), (0.2, 0.78, 0.018), (0, 0.39 if lean else 0, zc), deck, inner, bevel=0.008, segments=2)
     box(_n(inner, 'grip'), (0.19, 0.6, 0.004), (0, 0.39 if lean else 0, zc + 0.011), 'plastic_black', inner, bevel=0,

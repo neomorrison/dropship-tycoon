@@ -71,7 +71,7 @@ F.potted_plant('tall', 'plant_bed', location=(-6.1, 2.1, 0), seed=21)
 F.dining_table('round', 4, 'dining_table', location=(-0.6, 3.4, 0), mat='wood_dark', chair_style='wood',
                chair_mat='fabric_mustard', anchors_eat='a_eat_sit', place_settings=False)
 X4.table_spread('table_spread', location=(-0.6, 3.4, 0.75))
-F.ceiling_lamp('globe', 'pendant_dining', location=(-0.6, 3.4, H), drop=1.3, light_anchor='l_dining')
+F.ceiling_light('globe', 'pendant_dining', location=(-0.6, 3.4, H), drop=1.3, light_anchor='l_dining')
 
 # ---- designer kitchen on the walnut wall + island ---------------------------------------------------------------------
 F.kitchen_run(2.7, 'kitchen', location=(2.65, Y - 0.31, 0), rotation=B.against('n'), style='designer',
@@ -80,7 +80,7 @@ F.kitchen_run(2.7, 'kitchen', location=(2.65, Y - 0.31, 0), rotation=B.against('
 F.fridge('built_in', location=(4.4, Y - 0.33, 0), rotation=B.against('n'), mat='plastic_white', anchors=True)
 isl = F.kitchen_island(2.4, 1.0, 'island', location=(2.65, 2.45, 0), style='designer', counter_mat='plastic_white',
                        stools=3, stool_mat='fabric_navy')
-X5.linear_pendant('pendant_island', location=(2.65, 2.45, H), length=2.0, drop=1.35, light_anchor='l_kitchen')
+B.light('l_kitchen', (2.65, 2.45, H - 1.45), 'ceiling', '#fff1d6', 1.6, 6.0)      # no hanging fixture: nothing floats
 cm = F.coffee_machine('coffee_machine', location=(1.55, Y - 0.34, 0.9), rotation=B.against('n'), parent=root)
 
 # ---- elevator foyer + package plinths (a_boxes_*) -------------------------------------------------------------------
@@ -108,9 +108,9 @@ X5.bar_cart('bar_cart', location=(-1.1, -4.6, 0), rotation=0)
 F.armchair('club', 'armchair', location=(-4.35, -4.55, 0), rotation=B.facing_deg((-5.9, -3.3), (-4.35, -4.55)),
            mat='fabric_mustard', leg_mat='wood_dark')
 
-# ---- games corner in the middle: pool table under a pendant ------------------------------------------------------
+# ---- games corner in the middle: pool table --------------------------------------------------------------
 X5.pool_table('pool_table', location=(-1.3, -0.35, 0), rotation=0)
-F.ceiling_lamp('pendant', 'pendant_pool', location=(-1.3, -0.35, H), drop=1.6, mat='plastic_black',
+F.ceiling_light('pendant', 'pendant_pool', location=(-1.3, -0.35, H), drop=1.6, mat='plastic_black',
                light_anchor='l_pool')
 
 # ---- team bench (SE): 4 desks on the north side face south (toward the camera), 3 on the south side face north --------
@@ -125,8 +125,7 @@ for n, xx, side, mons, cmat in staff:
                      rotation=B.against('s' if side == 'n' else 'n'), monitors=mons, chair_mat=cmat,
                      desk_w=1.2, desk_d=0.6)
 X5.planter_box('planter_bench', location=(4.65, CY - 0.3, 0), w=1.1, d=0.5)
-X5.linear_pendant('pendant_office_1', location=(2.85, CY + 0.35, H), length=4.4, drop=1.1,
-                  light_anchor='l_office')
+B.light('l_office', (2.85, CY + 0.35, H - 1.2), 'ceiling', '#fff1d6', 1.6, 6.0)
 F.whiteboard(1.4, 0.95, 'whiteboard', location=(5.6, 0.05, 0), rotation=35, seed=5)
 F.water_cooler('water_cooler', location=(X - 0.3, -4.55, 0), rotation=B.against('e'))
 
@@ -160,7 +159,6 @@ if 'report' in args['rest']:
 X4.finish(root,
           reparent={'table_spread': 'dining_table', 'coffee_machine': 'kitchen', 'bed_lamp': 'nightstand'},
           merges={'floor_decor': (['rug_bed', 'rug_lounge', 'rug_dining', 'rug_office'], {}),
-                  'ceiling_lights': (['pendant_dining', 'pendant_island', 'pendant_office_1', 'pendant_pool'], {}),
                   'kitchen_fridge': (['kitchen', 'fridge'], {'interact': 'fridge', 'obstacle': True}),
                   'plinths': (['plinth_1', 'plinth_2'], {'obstacle': True}),
                   },

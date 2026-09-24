@@ -12,12 +12,13 @@
 //
 // Scripts (Playwright) use window.__dt — see scripts/e2e/README.md.
 // ============================================================================
-import type { GameState, SiteId } from '../core/types'
+import type { ActivityKind, GameState, SiteId } from '../core/types'
 import { act, useGame } from '../core/store'
 import { closeTab, openSite, useUI, type Speed } from '../core/ui'
 import { resolveModal } from '../core/modals'
 import { dayOf, hourOfDay } from '../core/time'
 import { tickHour } from '../sim'
+import { cancelActivity, enqueueActivity } from '../sim/life'
 import { SITES } from '../ui/sites/registry'
 import { DEFAULT_SEED, SCENARIO_INFO, SCENARIO_NAMES, buildScenario, isScenarioName, scenarioChecks, type ScenarioName } from './scenarios'
 
@@ -65,6 +66,12 @@ export interface DevHandle {
   /** close every browser tab (and optionally the computer) */
   closeTabs: (closeComputer?: boolean) => void
   setSpeed: (speed: Speed) => void
+  /** drop whatever the player is doing and start `kind` now (optional duration in minutes); returns the id */
+  startActivity: (kind: ActivityKind, opts?: { durationMin?: number }) => string | null
+  /** 3D room QA: the director's view (beat, room, transition, crowd) or null when the room is 2D */
+  scene3d: () => unknown
+  /** 3D room QA: animate the room at this speed while the sim clock stays paused (null = follow the game) */
+  roomSpeed: (speed: number | null) => void
 }
 
 declare global {
@@ -140,6 +147,39 @@ function installHandle(): DevHandle {
       if (closeComputer) useUI.getState().set({ computerOpen: false })
     },
     setSpeed: speed => useUI.getState().set(speed === 0 ? { speed: 0 } : { speed, lastSpeed: speed }),
+    startActivity: (kind, opts) => {
+      let id: string | null = null
+      act(s => {
+        s.player.queue = []
+        const cur = s.player.activity
+        if (cur) {
+          if (cur.kind === 'work_shift' || cur.payload?.forced) {
+            s.player.activity = null
+            s.player.location = 'home'
+          } else cancelActivity(s, cur.id)
+        }
+        if (s.player.activity) {
+          s.player.activity = null
+          s.player.location = 'home'
+        }
+        s.player.queue = []
+        id = enqueueActivity(s, kind, opts)
+        if (!id) {
+          // activities that need a target (a product, a creative...) are forced in directly for QA
+          const min = opts?.durationMin ?? 60
+          id = `qa_${kind}_${s.seq++}`
+          s.player.activity = { id, kind, label: kind, durationMin: min, remainingMin: min, startedHour: s.time.hour }
+          s.player.location = kind === 'gym' || kind === 'socialize' ? 'out' : 'home'
+        }
+      })
+      return id
+    },
+    scene3d: () => (window as unknown as { __scene3d?: { debug(): unknown } }).__scene3d?.debug() ?? null,
+    roomSpeed: speed => {
+      const g = globalThis as { __dtStageSpeed?: number }
+      if (speed === null) delete g.__dtStageSpeed
+      else g.__dtStageSpeed = speed
+    },
   }
   window.__dt = handle
   return handle

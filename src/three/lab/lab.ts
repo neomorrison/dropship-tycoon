@@ -9,7 +9,7 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const params = new URLSearchParams(location.search)
 const num = (k: string, d: number) => { const v = params.get(k); return v !== null && v !== '' && Number.isFinite(Number(v)) ? Number(v) : d }
 
-const ROOMS = ['testroom', 'testroom_b', '_sample', 'tier0', 'tier1', 'tier2', 'tier3', 'tier4', 'tier5', 'mcdoodles', 'title_city']
+const ROOMS = ['testroom', 'testroom_b', '_sample', 'tier0', 'tier1', 'tier2', 'tier3', 'tier4', 'tier5', 'mcdoodles', 'title_city', 'studio']
 const GEAR = ['phone-cracked', 'phone-pro', 'ring-light', 'softbox-kit', 'mirrorless-camera', 'laptop-old', 'laptop-pro', 'workstation', 'lav-mic']
 const PRESET_ORDER = ['player', 'p01', 'p02', 'p03', 'p04', 'p05', 'p06', 'p07', 'p08', 'p09', 'p10', 'p11', 'p12', 'p13', 'p14', 'p15', 'p16', 'p17', 'p18']
 const BACKDROP: Record<string, string> = { tier5: 'dark', title_city: 'dark' }

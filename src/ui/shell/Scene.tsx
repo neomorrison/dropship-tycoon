@@ -1,7 +1,8 @@
-// Apartment / McDoodle's scene with invisible hotspot buttons and context menus.
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+// Apartment / McDoodle's scene: the live 3D room when it can run (scene3d/), else the painted room with
+// invisible hotspot buttons. Context menus, banners and overlays are shared by both.
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import clsx from 'clsx'
-import { BedDouble, ChefHat, DoorOpen, Laptop, LogOut, Package, Refrigerator, Store, Flame, Sparkles } from 'lucide-react'
+import { BedDouble, ChefHat, DoorOpen, Laptop, LogOut, Package, Refrigerator, Store, Sparkles, Sofa, Tv } from 'lucide-react'
 import type { ActivityKind, GameState } from '../../core/types'
 import { useGame, useGS } from '../../core/store'
 import { openSite, useUI } from '../../core/ui'
@@ -15,18 +16,12 @@ import { FallbackHome, FallbackWork } from './FallbackRoom'
 import { checkActivity, doActivity, cancelAct, setComputerOpen } from './actions'
 import { clockOf, fmtMinutes, fmtUntil, nextShift, ProgressBar, shiftEnd, shiftStart, useDismiss, useSmoothActivity } from './common'
 import { tuckCoachIfCovering } from './shellStore'
+import { SPOT_LABEL, layoutTags, type Box } from './hotspotLabels'
+import { use3dRoom } from './scene3d/session'
+import { scene3dFry } from './scene3d/bus'
 
+const Scene3D = lazy(() => import('./scene3d/Scene3D'))
 
-const SPOT_LABEL: Record<HotspotKey, { label: string; icon: typeof BedDouble }> = {
-  bed: { label: 'Bed', icon: BedDouble },
-  computer: { label: 'Computer', icon: Laptop },
-  fridge: { label: 'Kitchen', icon: Refrigerator },
-  door: { label: 'Go out', icon: DoorOpen },
-  garage: { label: 'Inventory', icon: Package },
-  counter: { label: 'Register', icon: Store },
-  fryer: { label: 'Fryer', icon: Flame },
-  exit: { label: 'Exit', icon: LogOut },
-}
 
 const HINT_KEY = 'dropship-tycoon:hint-hotspots'
 function readHint(): boolean {
@@ -35,71 +30,6 @@ function readHint(): boolean {
   } catch {
     return true
   }
-}
-
-// ---------------------------------------------------------------------------
-// Hotspot tag layout: labels sit centered above their hotspot unless that would
-// collide with another label or the activity bubble (small stages, tight rooms).
-// ---------------------------------------------------------------------------
-interface Box { x: number; y: number; w: number; h: number }
-/** tag position relative to its hotspot: horizontal offset from the center, top edge from the hotspot's top */
-interface TagPos { dx: number; top: number }
-const hit = (a: Box, b: Box, pad = 3) => a.x < b.x + b.w + pad && b.x < a.x + a.w + pad && a.y < b.y + b.h + pad && b.y < a.y + a.h + pad
-
-function estimateTag(label: string, compact: boolean): { w: number; h: number } {
-  return compact ? { w: Math.round(label.length * 6.3 + 31), h: 21 } : { w: Math.round(label.length * 7.4 + 38), h: 27 }
-}
-
-function layoutTags(
-  spots: [HotspotKey, Rect][],
-  stage: { w: number; h: number },
-  view: Box,
-  compact: boolean,
-  sizes: Partial<Record<HotspotKey, { w: number; h: number }>>,
-  bubble: { spot: HotspotKey; size: number } | null,
-  obstacles: Box[],
-): Partial<Record<HotspotKey, TagPos>> {
-  const gap = compact ? 6 : 8
-  const placed: Box[] = [...obstacles]
-  const px = (r: Rect) => ({ x: (r.x / 100) * stage.w, y: (r.y / 100) * stage.h, w: (r.w / 100) * stage.w, h: (r.h / 100) * stage.h })
-  if (bubble) {
-    const r = spots.find(([k]) => k === bubble.spot)?.[1]
-    if (r) {
-      const b = px(r)
-      placed.push({ x: b.x + b.w / 2 - bubble.size / 2, y: b.y - 10 - bubble.size, w: bubble.size, h: bubble.size })
-    }
-  }
-  const out: Partial<Record<HotspotKey, TagPos>> = {}
-  // big hotspots keep their spot; small ones make room
-  const order = [...spots].sort((a, b) => b[1].w * b[1].h - a[1].w * a[1].h)
-  for (const [k, r] of order) {
-    const L = SPOT_LABEL[k]
-    if (!L) continue
-    const { w, h } = sizes[k] ?? estimateTag(L.label, compact)
-    const b = px(r)
-    const cx = b.x + b.w / 2
-    const clampX = (x: number) => Math.max(view.x + 4, Math.min(view.x + view.w - w - 4, x))
-    const clampY = (y: number) => Math.max(view.y + 4, y)
-    const box = (dx: number, y: number): Box => ({ x: clampX(cx + dx - w / 2), y: clampY(y), w, h })
-    const above = b.y - gap - h
-    const reach = b.w / 2 + 28
-    const tries: Box[] = [box(0, above)]
-    for (let d = 4; d <= reach; d += 4) tries.push(box(d, above), box(-d, above))
-    tries.push(box(0, above - (h + 4)), box(0, b.y + 6), box(0, b.y + b.h + gap))
-    for (let d = 4; d <= reach; d += 4) tries.push(box(d, above - (h + 4)), box(-d, above - (h + 4)))
-    // other hotspots: a label parked on top of the desk while it names the bed reads wrong (and
-    // swallows clicks meant for the desk), so prefer spots clear of them too
-    const others = spots.filter(([o]) => o !== k).map(([, o]) => px(o))
-    // first free spot; when everything is crowded, the one that overlaps least
-    const overlap = (t: Box) => placed.reduce((a, p) => a + Math.max(0, Math.min(t.x + t.w, p.x + p.w) - Math.max(t.x, p.x)) * Math.max(0, Math.min(t.y + t.h, p.y + p.h) - Math.max(t.y, p.y)), 0)
-    const pick =
-      tries.find(t => !placed.some(p => hit(t, p)) && !others.some(o => hit(t, o, -6))) ??
-      tries.find(t => !placed.some(p => hit(t, p))) ??
-      tries.reduce((best, t) => (overlap(t) < overlap(best) ? t : best), tries[0])
-    placed.push(pick)
-    out[k] = { dx: pick.x + w / 2 - cx, top: pick.y - b.y }
-  }
-  return out
 }
 
 export default function Scene() {
@@ -123,6 +53,15 @@ export default function Scene() {
     const fromFile = file?.[roomKey]
     return fromFile && Object.keys(fromFile).length ? { ...defaults, ...fromFile } : defaults
   }, [missing, atWork, file, roomKey])
+
+  // --- live 3D room: the painted room stays up (and clickable) until the stage is ready ----
+  const want3d = use3dRoom()
+  const [ready3d, setReady3d] = useState(false)
+  useEffect(() => {
+    if (!want3d) setReady3d(false)
+  }, [want3d])
+  const show3d = want3d && ready3d
+  const on3dReady = useCallback(() => setReady3d(true), [])
 
   // --- stage sizing: 16:9 stage, zoomed so the diorama fills the area -------
   const areaRef = useRef<HTMLDivElement>(null)
@@ -154,6 +93,8 @@ export default function Scene() {
 
   // --- menus -----------------------------------------------------------------
   const [menu, setMenu] = useState<HotspotKey | null>(null)
+  /** 3D: the open menu's object on screen (area pixels) */
+  const [menuRect, setMenuRect] = useState<Rect | null>(null)
   const [hint, setHint] = useState(readHint)
   const [fries, setFries] = useState(0)
   // pressing the hotspot whose menu is open: the outside-pointerdown (captured on window, before
@@ -161,10 +102,10 @@ export default function Scene() {
   // matched by its pointerdown event, not a time window, so a quick deliberate re-click still opens.
   const menuRef = useRef<HotspotKey | null>(null)
   menuRef.current = menu
-  const closedBy = useRef<{ key: HotspotKey | null; ev: Event | null }>({ key: null, ev: null })
+  const closedBy = useRef<{ key: HotspotKey | null; ev: Event | null; at: number }>({ key: null, ev: null, at: 0 })
   const downOnOpen = useRef<HotspotKey | null>(null)
   const closeMenu = useCallback((reason?: 'outside' | 'escape', e?: Event) => {
-    closedBy.current = reason === 'outside' && e ? { key: menuRef.current, ev: e } : { key: null, ev: null }
+    closedBy.current = reason === 'outside' && e ? { key: menuRef.current, ev: e, at: performance.now() } : { key: null, ev: null, at: 0 }
     setMenu(null)
   }, [])
   const openMenu = (k: HotspotKey) => {
@@ -178,6 +119,16 @@ export default function Scene() {
         /* ignore */
       }
     }
+  }
+  // 3D: a click on an object (the pick lands on pointerup, after the outside-pointerdown closed its menu)
+  const openMenu3d = (k: HotspotKey, r: Rect) => {
+    const c = closedBy.current
+    if (c.key === k && performance.now() - c.at < 900) {
+      closedBy.current = { key: null, ev: null, at: 0 }
+      return
+    }
+    setMenuRect(r)
+    openMenu(k)
   }
   const [menuRoom, setMenuRoom] = useState(roomKey)
   if (menuRoom !== roomKey) {
@@ -200,6 +151,7 @@ export default function Scene() {
   const out = location === 'out'
   const busySpot = activity && !out && !atWork ? ACTIVITY_META[activity.kind]?.spot : null
   const bg = ROOM_BACKDROP[roomKey] ?? '#fbf3e7'
+  const menuAt = menu ? (show3d ? (menuRect ? { cx: menuRect.x + menuRect.w / 2, top: menuRect.y, bottom: menuRect.y + menuRect.h, areaW: area.w, areaH: area.h } : null) : spots[menu] ? menuAnchor(spots[menu]!) : null) : null
   const darkBackdrop = roomKey === 'tier5'
 
   // measured tag sizes (tags are always rendered, just transparent until hover/hint)
@@ -251,11 +203,16 @@ export default function Scene() {
 
   return (
     <div
-      className={clsx('sh-scene', `sh-tod-${tod}`, darkBackdrop && 'is-dark', out && 'is-out', sleeping && 'is-sleeping')}
+      className={clsx('sh-scene', `sh-tod-${tod}`, darkBackdrop && 'is-dark', out && 'is-out', sleeping && 'is-sleeping', show3d && 'is-3d')}
       style={{ '--sh-room-bg': bg } as CSSProperties}
     >
       <div className="sh-scene-area" ref={areaRef}>
-        {stageW > 0 && (
+        {want3d && (
+          <Suspense fallback={null}>
+            <Scene3D hint={hint && !out && !sleeping} compact={area.w > 0 && area.w < 720} ready={ready3d} menu={menu} onReady={on3dReady} onOpenMenu={openMenu3d} fries={fries} />
+          </Suspense>
+        )}
+        {stageW > 0 && !show3d && (
           <div className={clsx('sh-stage', compact && 'is-compact')} style={{ width: stageW, height: stageH, left: stageLeft, top: stageTop }}>
             {missing ? (
               atWork ? <FallbackWork /> : <FallbackHome tier={safeTier} night={tod === 'night'} />
@@ -328,14 +285,15 @@ export default function Scene() {
           </div>
         )}
 
-        {menu && spots[menu] && (
+        {menu && menuAt && (
           <HotspotMenu
             spot={menu}
-            anchor={menuAnchor(spots[menu]!)}
+            anchor={menuAt}
             onClose={closeMenu}
             onFry={() => {
               sfx.fryer()
               setFries(f => f + 1)
+              scene3dFry()
             }}
           />
         )}
@@ -388,6 +346,14 @@ function buildMenu(spot: HotspotKey, s: GameState, onFry: () => void): MenuModel
           actItem(s, 'nap'),
           actItem(s, 'relax'),
         ],
+      }
+    case 'couch':
+    case 'tv':
+      return {
+        title: spot === 'tv' ? 'TV' : 'Couch',
+        icon: spot === 'tv' ? Tv : Sofa,
+        subtitle: `Mood ${Math.round(p.mood)}/100`,
+        items: [actItem(s, 'relax'), actItem(s, 'nap')],
       }
     case 'fridge':
       return {

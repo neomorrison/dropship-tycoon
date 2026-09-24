@@ -5,7 +5,7 @@ import type { SiteId } from './types'
 
 export type Speed = 0 | 1 | 2 | 4
 export interface BrowserTab { id: string; site: SiteId; path: string; back: string[]; forward: string[] }
-export type Overlay = null | 'settings' | 'daily_report' | 'saves' | 'help'
+export type Overlay = null | 'settings' | 'daily_report' | 'saves' | 'help' | 'look'
 
 interface UIStore {
   screen: 'title' | 'game'

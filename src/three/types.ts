@@ -1,6 +1,6 @@
 // Public types of the 3D stage (see docs/3D.md §6–7). Pure types: no three.js import, safe for sim/tests.
 
-export type RoomId = 'tier0' | 'tier1' | 'tier2' | 'tier3' | 'tier4' | 'tier5' | 'mcdoodles' | 'title_city'
+export type RoomId = 'tier0' | 'tier1' | 'tier2' | 'tier3' | 'tier4' | 'tier5' | 'mcdoodles' | 'title_city' | 'studio'
 
 export type HairStyle = 'short' | 'messy' | 'long' | 'bun' | 'braids' | 'afro' | 'buzz' | 'curly' | 'ponytail' | 'bob' | 'bald'
 export type Accessory = 'glasses' | 'cap' | 'cap_back' | 'beanie' | 'flatcap' | 'hijab' | 'headphones' | 'visor' | 'scarf' | 'beard' | 'apron'

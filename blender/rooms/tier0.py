@@ -141,8 +141,8 @@ X0.gather('decor_n', 'n', deco_n)
 F.moving_boxes(5, 'boxes', location=(HX - 0.35, -1.5, 0), rotation=90, seed=3)
 B.anchor('a_boxes_1', (HX - 0.4, -0.2, 0), 'w', w=0.8, d=0.6, layers=3)
 
-# ---- ceiling light --------------------------------------------------------------------------------------------------
-F.ceiling_lamp('bulb', 'ceiling_bulb', location=(0.3, -0.2, 2.7), drop=0.55, light_anchor='l_ceiling')
+# ---- ceiling light (anchor only: a bulb on a cord would float in the cutaway) --------------------------------------
+F.ceiling_light('bulb', 'ceiling_bulb', location=(0.3, -0.2, 2.7), drop=0.55, light_anchor='l_ceiling')
 B.light('l_window', R.wall_point('w', 0.7, 2.0, 0.4), 'window', color='#d6ecff', intensity=0.8, distance=4.0)
 
 # ---- hand-placed anchors -------------------------------------------------------------------------------------------

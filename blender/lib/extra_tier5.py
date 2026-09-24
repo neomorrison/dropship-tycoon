@@ -15,19 +15,22 @@ def _n(g, part):
 BODY_MATS = ('fabric_navy', 'tile_check_dark', 'plastic_black', 'fabric_navy', 'tile_check_dark')
 
 
-def _building(g, rng, cx, cy, w, d, top, bottom, face, lit=0.45, step=None, floor_h=2.1):
+def _building(g, rng, cx, cy, w, d, top, bottom, face, lit=0.45, step=None, floor_h=2.1, win_depth=30.0,
+              crown_max=None, body=None, neon=0.07):
     """One tower: a body box (+ an optional set-back crown with a spire and a red beacon) and night-lit window
     bands on the face(s) that look toward the room: per floor, a few lit strips of random length.
     face: list of '+x' / '-x' / '+y' / '-y'."""
-    mat = rng.choice(BODY_MATS)
+    mat = body or rng.choice(BODY_MATS)
     h = top - bottom
     box(_n(g, 'b'), (w, d, h), (cx, cy, bottom + h / 2), mat, g, bevel=0.0, segments=1)
     tops = [(w, d, top)]
     if step:
         sw, sd, sh = w * step, d * step, rng.uniform(2.0, 5.0)
+        if crown_max is not None:
+            sh = min(sh, crown_max)
         box(_n(g, 'crown'), (sw, sd, sh), (cx, cy, top + sh / 2), mat, g, bevel=0.0, segments=1)
         tops.append((sw, sd, top + sh))
-        if rng.random() < 0.7:
+        if rng.random() < 0.7 and crown_max is None:
             sp = rng.uniform(3, 6)
             tube(_n(g, 'spire'), [(cx, cy, top + sh), (cx, cy, top + sh + sp)], 0.12, 'metal', g, res=5)
             sphere(_n(g, 'beacon'), 0.35, (cx, cy, top + sh + sp + 0.2), 'neon_red', g, segs=8, rings=5)
@@ -36,14 +39,14 @@ def _building(g, rng, cx, cy, w, d, top, bottom, face, lit=0.45, step=None, floo
     for f in face:
         horiz = w if f in ('+y', '-y') else d
         z = top - 1.6
-        zmin = max(bottom + 2.0, top - 30.0)
+        zmin = max(bottom + 2.0, top - win_depth)
         while z > zmin:
             u = -horiz / 2 + 0.5
             while u < horiz / 2 - 0.8:
                 ln = rng.uniform(0.5, 1.4)
                 ln = min(ln, horiz / 2 - 0.5 - u)
                 if ln > 0.5 and rng.random() < lit:
-                    m = 'lampshade' if rng.random() > 0.07 else rng.choice(('neon_cyan', 'neon_yellow'))
+                    m = 'lampshade' if rng.random() >= neon else rng.choice(('neon_cyan', 'neon_yellow'))
                     c = u + ln / 2
                     hh = 0.7
                     if f == '-y':
@@ -58,180 +61,100 @@ def _building(g, rng, cx, cy, w, d, top, bottom, face, lit=0.45, step=None, floo
             z -= floor_h
 
 
-def _default_view(root, res=(1280, 720)):
-    """Projection of the default preview camera (south-east, 40 deg, FOV 28, framing the room like
-    build.render_preview 'default'): returns (project(p) -> (x, y) in 0..1 with y up, hull of the room's
-    screen silhouette as a CCW list of (x, y)). The temporary camera is removed again."""
-    import bpy
-    from bpy_extras.object_utils import world_to_camera_view
-    from mathutils import Vector
-    sc = bpy.context.scene
-    old = (sc.render.resolution_x, sc.render.resolution_y, sc.camera)
-    sc.render.resolution_x, sc.render.resolution_y = res
-    cd = bpy.data.cameras.new('_sky_cam')
-    cd.lens_unit = 'FOV'
-    cd.angle = math.radians(28.0)
-    cd.sensor_fit = 'HORIZONTAL'
-    cam = bpy.data.objects.new('_sky_cam', cd)
-    sc.collection.objects.link(cam)
-    B.fit_camera(cam, B.room_points(root), 45.0, 40.0, res, margin=0.05)
-    bpy.context.view_layer.update()
-    mw = cam.matrix_world.copy()
-    frame = [v.copy() for v in cd.view_frame(scene=sc)]
-    inv = mw.inverted()
-    fz = -frame[0].z
-    fx0, fx1 = min(v.x for v in frame), max(v.x for v in frame)
-    fy0, fy1 = min(v.y for v in frame), max(v.y for v in frame)
-
-    def project(pt):
-        co = inv @ Vector(pt)
-        z = -co.z
-        if z <= 1e-6:
-            return (0.5, -1.0)
-        k = fz / z
-        return ((co.x * k - fx0) / (fx1 - fx0), (co.y * k - fy0) / (fy1 - fy0))
-    pts = sorted(set((round(x, 6), round(y, 6)) for x, y in (project(p_) for p_ in B.room_points(root))))
-
-    def cross(o, a_, b_):
-        return (a_[0] - o[0]) * (b_[1] - o[1]) - (a_[1] - o[1]) * (b_[0] - o[0])
-    lower, upper = [], []
-    for p_ in pts:
-        while len(lower) >= 2 and cross(lower[-2], lower[-1], p_) <= 0:
-            lower.pop()
-        lower.append(p_)
-    for p_ in reversed(pts):
-        while len(upper) >= 2 and cross(upper[-2], upper[-1], p_) <= 0:
-            upper.pop()
-        upper.append(p_)
-    hull = lower[:-1] + upper[:-1]
-    # sanity: the live camera agrees with the frozen projection
-    c = world_to_camera_view(sc, cam, Vector((0.0, 0.0, 0.0)))
-    q = project((0.0, 0.0, 0.0))
-    assert abs(c.x - q[0]) < 1e-3 and abs(c.y - q[1]) < 1e-3, (c, q)
-    bpy.data.objects.remove(cam, do_unlink=True)
-    bpy.data.cameras.remove(cd)
-    sc.render.resolution_x, sc.render.resolution_y, sc.camera = old
-    return project, hull
-
-
-def _hull_span(hull, x):
-    """(ymin, ymax) of the convex hull at screen x, or None outside it."""
-    ys = []
-    n = len(hull)
-    for i in range(n):
-        (x0, y0), (x1, y1) = hull[i], hull[(i + 1) % n]
-        if (x0 - x) * (x1 - x) <= 0 and x0 != x1:
-            t = (x - x0) / (x1 - x0)
-            ys.append(y0 + t * (y1 - y0))
-    return (min(ys), max(ys)) if ys else None
-
-
-def _solve_z(project, x, y, target, lo=-200.0, hi=200.0):
-    """z at which (x, y, z) projects to screen-y `target` (monotonic in z)."""
-    for _ in range(50):
-        mid = (lo + hi) / 2
-        if project((x, y, mid))[1] < target:
-            lo = mid
-        else:
-            hi = mid
-    return (lo + hi) / 2
-
-
 def skyline(W, D, H=3.4, name='outside', seed=11, root=None):
-    """Low-poly night skyline in group `outside` {outside:true}, composed through the default south-east
-    camera (azimuth 45, elevation 40, FOV 28; the same fit as the previews and close to the runtime's): every
-    tower stands behind the room with its base hidden behind the room's screen silhouette (the diorama still
-    floats in the navy backdrop), so it shows only (a) through the north / west glass: a band of rooftops well
-    below the floor (the penthouse is on the top floor), and (b) over the back walls: towers whose crowns,
-    spires and red beacons rise above the wall tops into the empty upper corners of the frame. Lit window bands
-    use m_lampshade (the runtime makes them glow at night) with a few neon accents; a neon billboard
-    (shopping-bag pictogram, no letters) stands on one roof. Other camera angles show a plausible city too."""
+    """Low-poly night city in group `outside` {outside:true}, seen from the penthouse on the top floor: a dark city
+    floor 34 m below the room with glowing street grids, and blocks of towers standing on it whose roofs all stay
+    far below the room's floor (z <= -7 m, beacons included). From any yaw or zoom the camera looks DOWN at the
+    city around the floating diorama (through the north / west glass and in the frame around the room), so no tower
+    ever stands between the camera and the room, looms beside it, or reaches the near plane. Towers sit in eight
+    45-degree sectors, each its own group `outside_s<k>` {keep:true, sector:<Blender degrees>}; the runtime sinks
+    the sectors on the camera's side (defensive: they are below the frame anyway). Lit window bands use m_lampshade
+    (glowing at night); a neon billboard (shopping-bag pictogram, no letters) stands on a roof north-west of the room."""
     import room as R
     rng = random.Random(seed)
     root = root or R.ROOM['root']
-    project, hull = _default_view(root)
     g = B.group(name, (0, 0, 0), outside=True)
     X, Y = W / 2, D / 2
-    r2 = math.sqrt(2.0)
-    placed = []
+    GROUND = -34.0                   # the street level far below
+    CEIL = -7.0                      # highest point any tower may reach (m, relative to the room floor)
+    BLOCK = 20.0                     # street grid spacing (streets at odd multiples of BLOCK / 2)
+    REACH = 100.0                    # how far the city extends
+    sectors = {}
 
-    def free(cx, cy, w, d):
-        if cx > -X - w / 2 - 1.5 and cy < Y + d / 2 + 1.5:
-            return False
-        for (px, py, pw, pd) in placed:
-            if abs(cx - px) < (w + pw) / 2 + 0.6 and abs(cy - py) < (d + pd) / 2 + 0.6:
-                return False
-        return True
+    def sector_of(cx, cy):
+        k = int(((math.degrees(math.atan2(cy, cx)) + 22.5) % 360) // 45)
+        if k not in sectors:
+            sectors[k] = B.group(f'{name}_s{k}', (0, 0, 0), parent=g, keep=True, sector=k * 45)
+        return sectors[k]
 
-    def base_z(cx, cy, w, d):
-        """Deepest-needed bottom: highest z at which every bottom corner is still inside the silhouette."""
-        zs = []
-        for sx_ in (-1, 1):
-            for sy_ in (-1, 1):
-                x, y = cx + sx_ * w / 2, cy + sy_ * d / 2
-                sx = project((x, y, 0.0))[0]
-                span = _hull_span(hull, sx)
-                if span is None:
-                    return None
-                zs.append(_solve_z(project, x, y, span[0] + 0.02))
-        return max(zs)
+    # the city floor (m_window_sky: the runtime tints it with the sky, so it reads as haze far below by day and
+    # melts into the night backdrop after dark) and its street lights (always visible; not a sector)
+    cyl(_n(g, 'ground'), 260.0, 0.4, (0, 0, GROUND - 0.2), 'window_sky', g, verts=48, bevel=0.0, segments=1)
+    n = int(REACH // BLOCK) + 1
+    for k in range(-n, n):
+        c = (k + 0.5) * BLOCK
+        span = 2 * math.sqrt(max(0.0, (REACH + 20) ** 2 - c * c))
+        if span < 4:
+            continue
+        box(_n(g, 'street_x'), (span, 0.25, 0.05), (0, c, GROUND + 0.03), 'lampshade', g, bevel=0.0, segments=1)
+        box(_n(g, 'street_y'), (0.25, span, 0.05), (c, 0, GROUND + 0.03), 'lampshade', g, bevel=0.0, segments=1)
 
-    def top_z(cx, cy, w, d, off):
-        sx = project((cx, cy, 0.0))[0]
-        span = _hull_span(hull, sx)
-        if span is None:
-            return None
-        # the wall-top line under the whole footprint (take the highest point of the upper edge it spans)
-        xs = [project((cx + a_ * w / 2, cy + b_ * d / 2, 0.0))[0] for a_ in (-1, 1) for b_ in (-1, 1)]
-        tops = [(_hull_span(hull, x_) or span)[1] for x_ in xs]
-        return _solve_z(project, cx, cy, max(tops) + off)
+    def faces(cx, cy):
+        # the sides that look back toward the room (the only ones a camera around the room can see lit)
+        return [('+x' if cx < 0 else '-x'), ('+y' if cy < 0 else '-y')]
 
-    def ring(v0, v1, count, off, size=(3.0, 5.0), landmark=0.0):
-        tries = n = 0
-        while n < count and tries < count * 150:
-            tries += 1
-            w, d = rng.uniform(*size), rng.uniform(*size)
-            u, v = rng.uniform(-(X + Y) / r2, (X + Y) / r2), rng.uniform(v0, v1)
-            cx, cy = (u - v) / r2, (u + v) / r2
-            if not free(cx, cy, w, d):
+    # billboard roof north-west of the room (seen through the glass walls from the default view)
+    bx, by, bw = -BLOCK, BLOCK, 6.0
+    btop = -16.0
+    sg = sector_of(bx, by)
+    box(_n(sg, 'bbroof'), (bw, bw, btop - GROUND), (bx, by, (btop + GROUND) / 2), 'plastic_black', sg, bevel=0.0,
+        segments=1)
+    box(_n(sg, 'bbrim'), (bw + 0.3, bw + 0.3, 0.35), (bx, by, btop + 0.1), 'fabric_blue', sg, bevel=0.0, segments=1)
+    bb = B.group(name + '_billboard', (bx, by, btop), -45, parent=sg)
+    box(_n(bb, 'frame'), (4.6, 0.25, 2.4), (0, 0, 2.2), 'plastic_black', bb, bevel=0.0, segments=1)
+    for k in (-1.5, 1.5):
+        box(_n(bb, 'post'), (0.18, 0.18, 1.2), (k, 0, 0.5), 'plastic_black', bb, bevel=0.0, segments=1)
+    y = -0.15
+    tube(_n(bb, 'bag'), [(-0.7, y, 1.35), (-0.85, y, 2.65), (0.85, y, 2.65), (0.7, y, 1.35), (-0.7, y, 1.35)],
+         0.07, 'neon_pink', bb, res=6)
+    tube(_n(bb, 'handle'), [(-0.38, y, 2.65), (-0.3, y, 3.1), (0.3, y, 3.1), (0.38, y, 2.65)], 0.06,
+         'neon_pink', bb, res=6)
+    tube(_n(bb, 'spark'), [(1.4, y, 2.9), (1.65, y, 2.25), (1.35, y, 2.25), (1.6, y, 1.55)], 0.06, 'neon_cyan',
+         bb, res=6)
+
+    # towers: up to two per city block, taller (closer to the floor line) near the penthouse's own block
+    count = 0
+    for bi in range(-n, n):
+        for bj in range(-n, n):
+            x0, y0 = bi * BLOCK - BLOCK / 2, bj * BLOCK - BLOCK / 2       # block spans [x0 + 1, x0 + BLOCK - 1]
+            ccx, ccy = x0 + BLOCK / 2, y0 + BLOCK / 2
+            r = math.hypot(ccx, ccy)
+            if r > REACH or (bi, bj) == (0, 0) or (abs(bx - ccx) < 1 and abs(by - ccy) < 1):
                 continue
-            bottom = base_z(cx, cy, w, d)
-            top = top_z(cx, cy, w, d, rng.uniform(*off))
-            if bottom is None or top is None or top - bottom < 3.0:
-                continue
-            big = landmark and rng.random() < landmark
-            _building(g, rng, cx, cy, w, d, top, bottom - 0.5, ['+x', '-y', '-x', '+y'], lit=rng.uniform(0.45, 0.75),
-                      step=rng.uniform(0.55, 0.75) if (big or rng.random() < 0.25) else None)
-            placed.append((cx, cy, w, d))
-            n += 1
-        print(f'[skyline] ring v{v0}-{v1}: {n}/{count} towers')
-
-    # billboard roof, seen through the west glass
-    bu, bv = -3.6, 14.0
-    bx, by = (bu - bv) / r2, (bu + bv) / r2
-    bw = 5.5
-    bb0 = base_z(bx, by, bw, bw)
-    bz = top_z(bx, by, bw, bw, -0.16)
-    if bb0 is not None and bz is not None and bz - bb0 > 3.0:
-        box(_n(g, 'bbroof'), (bw, bw, bz - bb0 + 0.5), (bx, by, (bz + bb0 - 0.5) / 2), 'tile_check_dark', g,
-            bevel=0.0, segments=1)
-        box(_n(g, 'bbrim'), (bw + 0.3, bw + 0.3, 0.35), (bx, by, bz + 0.1), 'fabric_blue', g, bevel=0.0, segments=1)
-        placed.append((bx, by, bw, bw))
-        bb = B.group(name + '_billboard', (bx, by, bz), -45, parent=g)
-        box(_n(bb, 'frame'), (4.6, 0.25, 2.4), (0, 0, 2.2), 'plastic_black', bb, bevel=0.0, segments=1)
-        for k in (-1.5, 1.5):
-            box(_n(bb, 'post'), (0.18, 0.18, 1.2), (k, 0, 0.5), 'plastic_black', bb, bevel=0.0, segments=1)
-        y = -0.15
-        tube(_n(bb, 'bag'), [(-0.7, y, 1.35), (-0.85, y, 2.65), (0.85, y, 2.65), (0.7, y, 1.35), (-0.7, y, 1.35)],
-             0.07, 'neon_pink', bb, res=6)
-        tube(_n(bb, 'handle'), [(-0.38, y, 2.65), (-0.3, y, 3.1), (0.3, y, 3.1), (0.38, y, 2.65)], 0.06,
-             'neon_pink', bb, res=6)
-        tube(_n(bb, 'spark'), [(1.4, y, 2.9), (1.65, y, 2.25), (1.35, y, 2.25), (1.6, y, 1.55)], 0.06, 'neon_cyan',
-             bb, res=6)
-
-    ring(9.0, 18.0, 10, (-0.20, -0.05), size=(2.4, 3.8))                  # rooftops through the glass
-    ring(16.0, 30.0, 22, (0.01, 0.07), size=(2.2, 3.6), landmark=0.3)     # slim towers over the back walls
-    ring(30.0, 46.0, 12, (0.05, 0.14), size=(3.0, 4.6), landmark=0.5)     # far landmarks (cropped tops)
+            for t in range(2 if rng.random() < 0.35 else 1):
+                w, d = rng.uniform(5.0, 8.5), rng.uniform(5.0, 8.5)
+                half = BLOCK / 2 - 1.5
+                if t == 0:
+                    cx, cy = ccx + rng.uniform(-half + w / 2, -1.0), ccy + rng.uniform(-3, 3)
+                else:
+                    cx, cy = ccx + rng.uniform(1.0 + w / 2, half), ccy + rng.uniform(-3, 3)
+                cx = min(max(cx, x0 + 1.5 + w / 2), x0 + BLOCK - 1.5 - w / 2)
+                cy = min(max(cy, y0 + 1.5 + d / 2), y0 + BLOCK - 1.5 - d / 2)
+                near = max(0.0, 1.0 - r / REACH)
+                top = min(CEIL - 0.6, GROUND + rng.uniform(8.0, 14.0) + near * rng.uniform(4.0, 16.0))
+                sg = sector_of(cx, cy)
+                step = rng.uniform(0.55, 0.75) if rng.random() < 0.25 else None
+                crown = CEIL - top - 0.4
+                if step and crown < 1.2:
+                    step = None
+                _building(sg, rng, cx, cy, w, d, top, GROUND, faces(cx, cy), lit=rng.uniform(0.3, 0.55), step=step,
+                          floor_h=3.0, win_depth=9.0, crown_max=crown if step else None, body='fabric_navy',
+                          neon=0.0)
+                if not step and rng.random() < 0.25:
+                    mz = min(top + 1.4, CEIL - 0.35)
+                    sphere(_n(sg, 'beacon'), 0.3, (cx, cy, mz), 'neon_red', sg, segs=8, rings=5)
+                count += 1
+    print(f'[skyline] {count} towers in {len(sectors)} sectors')
     return g
 
 

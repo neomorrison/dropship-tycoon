@@ -5,7 +5,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { GLTF } from './loader'
 import { disposeObject, materialsOf } from './loader'
 import { NavGrid, type Bounds2, type P2 } from './navgrid'
-import type { WallSide } from './math'
+import { gearNode, type WallSide } from './math'
 
 export interface Anchor {
   name: string
@@ -65,6 +65,16 @@ export class Room {
   nav!: NavGrid
   staffShown = Infinity
   camera: { pos: THREE.Vector3; target: THREE.Vector3; fov: number } | null = null
+  /** gear ids the room already shows as furniture (extras {gear:"ring_light"} on any node): setGear skips them */
+  bakedGear = new Set<string>()
+  /** character preview pedestal (root extras {studio:true}): the camera frames one person, drag turns the world */
+  studio = false
+  /** open dioramas (no walls): bounding-box corners of every top-level piece, for the orbit framing */
+  framePoints: THREE.Vector3[] = []
+  /** outside sectors (tier5's city): sunk out of view on the camera's side by the cutaway, see cutaway.ts */
+  outsideSectors: { obj: THREE.Object3D; dirX: number; dirZ: number; cut: boolean; level: number }[] = []
+  /** doorway points (a_door_exit / a_exit_door) where walkers wait politely while someone else is in the way */
+  doorPoints: P2[] = []
   stats = { meshesIn: 0, meshesOut: 0, triangles: 0 }
 
   constructor(id: string, gltf: GLTF) {
@@ -86,7 +96,12 @@ export class Room {
     const isNode = (o: THREE.Object3D) => !assoc || assoc.get(o)?.nodes !== undefined
     const ud = this.root.userData ?? {}
     this.wallH = Number(ud.wallH) || 2.7
-    this.scene.traverse(o => { if ((o as THREE.Mesh).isMesh) this.stats.meshesIn++ })
+    this.studio = truthy(ud.studio) || this.id === 'studio'
+    this.scene.traverse(o => {
+      if ((o as THREE.Mesh).isMesh) this.stats.meshesIn++
+      const g = o.userData?.gear
+      if (typeof g === 'string') for (const id of g.split(',')) if (id.trim()) this.bakedGear.add(gearNode(id))
+    })
 
     // --- anchors, light anchors, camera anchors (anywhere in the tree)
     const toRemove: THREE.Object3D[] = []
@@ -115,6 +130,7 @@ export class Room {
       this.camera = { pos: cam.pos.clone(), target: camT ? camT.pos.clone() : cam.pos.clone().addScaledVector(fwd, 20), fov: Number(cam.extras.fov) || 30 }
     }
     for (const o of toRemove) o.removeFromParent()
+    for (const n of ['door_exit', 'exit_door']) { const a = this.anchors.get(n); if (a) this.doorPoints.push({ x: a.pos.x, z: a.pos.z }) }
 
     // --- classify top-level children
     const floors: THREE.Object3D[] = [], statics: THREE.Object3D[] = [], outside: THREE.Object3D[] = []
@@ -158,6 +174,12 @@ export class Room {
       // an open diorama (title_city): frame everything that stands on it
       const all = new THREE.Box3().setFromObject(this.root)
       if (!all.isEmpty()) this.fitBox.max.y = Math.max(this.fitBox.max.y, all.max.y)
+      const b = new THREE.Box3()
+      for (const c of this.root.children) {
+        b.setFromObject(c)
+        if (b.isEmpty()) continue
+        for (const x of [b.min.x, b.max.x]) for (const y of [b.min.y, b.max.y]) for (const z of [b.min.z, b.max.z]) this.framePoints.push(new THREE.Vector3(x, y, z))
+      }
     }
 
     // --- obstacle footprints (before merging, in world XZ)
@@ -255,9 +277,26 @@ export class Room {
       for (const g of [castGroup, flatGroup]) g.traverse(o => { if ((o as THREE.Mesh).isMesh) this.pickables.push({ mesh: o as THREE.Mesh, kind: 'block' }) })
     }
     if (outside.length) {
+      // sectors (children with extras {sector:<Blender degrees>}) merge on their own so the cutaway can sink the
+      // ones on the camera's side (tier5's city); everything else outside merges into one always-visible unit
+      const loose: THREE.Object3D[] = []
+      for (const o of outside) {
+        for (const c of [...o.children]) {
+          const deg = Number(c.userData?.sector)
+          if (c.userData?.sector === undefined || !Number.isFinite(deg)) continue
+          const g = new THREE.Group(); g.name = `${c.name}_merged`
+          this.root.add(g)
+          mergeInto(g, [c], false, false)
+          c.removeFromParent()
+          const a = (deg * Math.PI) / 180
+          // Blender (x, y) -> three.js (x, -z)
+          this.outsideSectors.push({ obj: g, dirX: Math.cos(a), dirZ: -Math.sin(a), cut: false, level: 1 })
+        }
+        loose.push(o)
+      }
       const og = new THREE.Group(); og.name = 'outside_merged'
       this.root.add(og)
-      mergeInto(og, outside, false, false)
+      mergeInto(og, loose, false, false)
     }
 
     // --- shadow casters: the furniture never moves, so the shadow pass draws it as ONE position-only mesh

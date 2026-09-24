@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // GLB inspector + contract checker for the 3D pipeline (docs/3D.md). No dependencies: parses the GLB itself.
 //
-//   node blender/inspect.mjs <file.glb...> [--check room|character|props|title] [--walk] [--map] [--quiet] [--strict]
+//   node blender/inspect.mjs <file.glb...> [--check room|character|props|title|studio] [--walk] [--map] [--quiet] [--strict]
 //
 // Prints the node tree (with extras, triangle counts, materials), materials, animations (name + duration) and
 // the file size. --check validates the docs/3D.md contract for that asset kind and exits 1 listing violations.
@@ -209,6 +209,21 @@ function animDuration(g, a) {
 const HOME_ANCHORS = ['a_spawn', 'a_bed_lie', 'a_bed_sit', 'a_bed_stand', 'a_computer_sit', 'a_computer_stand', 'a_fridge_stand', 'a_stove_stand', 'a_eat_sit', 'a_door_stand', 'a_door_exit', 'a_film_stand', 'a_idle_1', 'a_idle_2', 'a_idle_3', 'a_boxes_1', 'a_gear_desk', 'a_gear_floor_1', 'a_gear_floor_2']
 const MCD_ANCHORS = ['a_spawn', 'a_counter_stand', 'a_fryer_stand', 'a_grill_stand', 'a_crew_1', 'a_crew_2', 'a_exit_stand', 'a_exit_door', 'a_queue_1', 'a_queue_2', 'a_queue_3', 'a_queue_4', 'a_booth_sit_1', 'a_booth_sit_2', 'a_booth_sit_3', 'a_booth_sit_4', 'a_booth_sit_5', 'a_booth_sit_6', 'a_idle_1', 'a_idle_2', 'a_idle_3']
 const STAFF = { tier0: 0, tier1: 1, tier2: 2, tier3: 3, tier4: 5, tier5: 7 }
+/** gear prop ids (props.glb node names) a room may name in a `gear` extra (baked item) or a_gear_desk `default` */
+const GEAR_IDS = ['phone_cracked', 'phone_pro', 'ring_light', 'softbox_kit', 'mirrorless_camera', 'laptop_old', 'laptop_pro', 'workstation', 'lav_mic']
+
+function checkGearTags(M, v) {
+  for (const n of M.nodes) {
+    const e = extras(n)
+    if (e.gear !== undefined) {
+      for (const id of String(e.gear).split(',').map((x) => x.trim())) if (!GEAR_IDS.includes(id)) v.push(`${n.name}: extras.gear "${id}" is not a gear prop id`)
+    }
+    if (e.default !== undefined) {
+      if (n.name !== 'a_gear_desk') v.push(`${n.name}: extras.default is only meaningful on a_gear_desk`)
+      else if (!['laptop_old', 'laptop_pro', 'workstation'].includes(e.default)) v.push(`a_gear_desk: extras.default "${e.default}" must be a desk computer id`)
+    }
+  }
+}
 const HAIR = ['short', 'messy', 'long', 'bun', 'braids', 'afro', 'buzz', 'curly', 'ponytail', 'bob']
 const ACC = ['glasses', 'cap', 'cap_back', 'beanie', 'flatcap', 'hijab', 'headphones', 'visor', 'scarf', 'beard', 'apron']
 const TOPS = ['top_hoodie', 'top_polo', 'top_blazer', 'top_sweater', 'top_uniform']
@@ -272,6 +287,7 @@ function checkRoom(M, G, v, w, kind = 'room') {
     else if (extras(wn).wall !== s) v.push(`wall_${s}: extras.wall should be "${s}"`)
   }
   checkAnchorsAndLights(M, v, w)
+  checkGearTags(M, v)
   const stats = drawStats(M)
   const triMax = id === 'title_city' ? 120000 : 90000
   checkBudget('triangles', stats.tris, triMax, v)
@@ -329,6 +345,28 @@ function checkRoom(M, G, v, w, kind = 'room') {
       if (Math.abs(x) > re.w / 2 + 0.01 || Math.abs(y) > re.d / 2 + 0.01) w.push(`${n.name} at (${x.toFixed(2)}, ${y.toFixed(2)}) is outside the floor`)
     }
   }
+}
+
+/** studio.glb: the character preview pedestal (no walls, one a_spawn, root extras {studio:true}) */
+function checkStudio(M, G, v, w) {
+  checkNames(M, v)
+  const root = M.byName.get('room')
+  if (!root) { v.push('missing root node "room"'); return }
+  const re = extras(root)
+  if (re.room !== 'studio') v.push('room extras.room must be "studio"')
+  if (re.studio !== true) v.push('room extras.studio must be true')
+  for (const k of ['w', 'd', 'wallH']) if (typeof re[k] !== 'number') v.push(`room extras.${k} must be a number`)
+  const floor = M.byName.get('floor')
+  if (!floor || !extras(floor).floor) v.push('missing "floor" node with extras {floor:true}')
+  if (!M.byName.get('slab')) v.push('missing "slab" node')
+  for (const s of ['n', 'e', 's', 'w']) if (M.byName.get(`wall_${s}`)) w.push(`wall_${s} present: the studio has no walls`)
+  const sp = M.byName.get('a_spawn')
+  if (!sp) v.push('missing anchor a_spawn')
+  else if (Math.hypot(sp.world[12], sp.world[14]) > 0.05) v.push('a_spawn must sit at the pedestal centre')
+  checkAnchorsAndLights(M, v, w)
+  const stats = drawStats(M)
+  checkBudget('triangles', stats.tris, 20000, v)
+  checkBudget('GLB size', +(G.size / 1048576).toFixed(3), 0.5, v, ' MB')
 }
 
 function checkTitle(M, G, v, w) {
@@ -544,7 +582,7 @@ function main() {
     else files.push(args[i])
   }
   if (!files.length) {
-    console.log('usage: node blender/inspect.mjs <file.glb...> [--check room|character|props|title] [--walk] [--map] [--quiet] [--strict]')
+    console.log('usage: node blender/inspect.mjs <file.glb...> [--check room|character|props|title|studio] [--walk] [--map] [--quiet] [--strict]')
     process.exit(2)
   }
   let bad = 0
@@ -559,6 +597,7 @@ function main() {
     else if (check === 'character') checkCharacter(M, G, v, w)
     else if (check === 'props') checkProps(M, G, v, w)
     else if (check === 'title') checkTitle(M, G, v, w)
+    else if (check === 'studio') checkStudio(M, G, v, w)
     else if (check) {
       console.error(`unknown --check ${check}`)
       process.exit(2)

@@ -14,10 +14,10 @@ blender/
   lib/furniture.py   furniture catalogue (+ lib/furniture2.py, re-exported: always call F.<name>)
   lib/catalog.py     renders every catalogue item to .previews/catalog_<row>.png (see what exists)
   lib/gen_api.py     regenerates the API section of this README from the docstrings
-  rooms/<id>.py      one script per room (tier0..tier5, mcdoodles, title_city); rooms/_sample.py = lib demo
+  rooms/<id>.py      one script per room (tier0..tier5, mcdoodles, title_city, studio); rooms/_sample.py = lib demo
   character/         character.py (rig, meshes, morphs, clips)
   props/props.py     props.glb (hand props, gear props, box_stack_unit)
-  stills.py          room stills (.webp) + hotspots.json for the 2D fallback
+  stills.py          room stills (.webp) + hotspots.json + seats.json for the 2D fallback
   .previews/ .out/   renders and scratch output (gitignored)
 ```
 
@@ -54,6 +54,7 @@ node blender/inspect.mjs public/assets/3d/tier0.glb --map --quiet       # ASCII 
 node blender/inspect.mjs public/assets/3d/character.glb --check character
 node blender/inspect.mjs public/assets/3d/props.glb --check props
 node blender/inspect.mjs public/assets/3d/title_city.glb --check title
+node blender/inspect.mjs public/assets/3d/studio.glb --check studio
 ```
 
 - `--check room`: root `room` (top level) with extras `room, w, d, wallH`; `floor` {floor:true}, `slab`,
@@ -66,11 +67,13 @@ node blender/inspect.mjs public/assets/3d/title_city.glb --check title
   {w,d,layers}, a_gear_desk {w,d}, a_gear_floor_1/2, a_garage_stand in tier4), `staffdesk_1..N` {staffdesk:n,
   obstacle} + `a_staff_<n>_sit` with N = 0,1,2,3,5,7; warnings for a couch without `a_couch_sit`, odd a_bed_lie
   height, anchors off the floor. `mcdoodles`: `counter fryer exit` + its anchor list. Other ids (e.g. `_sample`)
-  skip the tier-specific part.
+  skip the tier-specific part. Every room: a `gear` extra must name props.glb gear ids (comma list allowed) and an
+  a_gear_desk `default` must be laptop_old / laptop_pro / workstation.
 - `--check character`: rig + 20 bones, sockets under the hands, skinned `body` with the 7 material slots and the 4
   morphs, every `hair_*`, `top_*`, `acc_*` node, every clip name, root bone not translating horizontally in any clip,
   12k tris, 1.5 MB. `--check props`: every prop id as a top-level node, 0.8 MB. `--check title`: `a_cam` {fov},
-  `a_cam_target`, lights, 120k tris.
+  `a_cam_target`, lights, 120k tris. `--check studio`: root extras `room: "studio"`, `studio: true`, `floor`, `slab`,
+  no walls (warning), `a_spawn` at the centre, a light, 20k tris, 0.5 MB.
 - `--walk`: rebuilds the runtime grid: 0.2 m cells over the floor; blocked = inside (world AABB of each mesh under
   an `obstacle` group, or a `wall` node's own mesh) + 0.15 m padding. BFS (8-way, no corner cutting) from the free
   cell nearest `a_door_stand` (else `a_exit_stand`, `a_spawn`). An anchor is reachable if a reachable free cell lies
@@ -120,7 +123,7 @@ mattress point for `a_bed_lie`) under the pelvis. Builders with `anchors=True` p
 | `F.couch(..., anchors=True)` | a_couch_sit (middle seat) |
 | `F.dining_table(..., anchors_eat='a_eat_sit')`, `F.kitchen_island(..., anchors_eat='a_eat_sit')` | a seat facing the table / island |
 | `F.metal_shelving(..., boxes_anchor='a_boxes_1')` | region anchor on the 2nd shelf {w, d, layers}; that shelf is left empty |
-| `F.floor_lamp(..., light_anchor='l_x')`, `F.ceiling_lamp(..., light_anchor='l_x')` | light anchors at the bulb |
+| `F.floor_lamp(..., light_anchor='l_x')`, `F.ceiling_light(..., light_anchor='l_x')` | light anchors at the bulb |
 
 Anchors must be unique (a duplicate raises), so create each contract anchor once.
 
@@ -144,7 +147,7 @@ F.bed('full', 'platform', location=(-2.2, 1.3, 0), anchors=True)
 F.workstation('cheap', 'computer', location=(0.4, 2.18, 0), anchors='computer', gear_anchor='a_gear_desk')
 p = F.poster((0.5, 0.7), location=R.wall_point('n', -1.0, 1.6), rotation=B.against('n'), style='sunset')
 R.on_wall(p, 'n')                                                  # decor hides with its wall
-F.ceiling_lamp('globe', location=(0, 0, 2.7), light_anchor='l_ceiling')
+F.ceiling_light('globe', location=(0, 0, 2.7), light_anchor='l_ceiling')   # light only: no floating fixture
 B.anchor('a_spawn', (0, 0, 0), 's')
 ...
 if args['preview']:
@@ -207,12 +210,46 @@ blender.exe -b --factory-startup --python blender/stills.py -- _sample --glb ble
 node blender/run.mjs tier0 --stills                                               # build then still
 ```
 
-Imports the room GLB, renders it from the fixed high south-east camera (FOV 28, 40 deg, walls s/e cut away) at
-1600x900 with the room's backdrop colour (`src/ui/shell/hotspots.ts` ROOM_BACKDROP; unknown ids use `#fbf3e7`),
-writes `<out>/<id>.webp` (default `public/assets/rooms/`), and rewrites that room's entry in `<out>/hotspots.json`
-(`{room: {key: {x, y, w, h}}}` in percent of the image, x/y = top-left) from the projected bounding box of every
-interactive group. Other rooms' entries are kept. `--hotspots <path>` overrides the JSON path; `--png` also keeps the
-PNG. `title_city` uses `a_cam` / its `fov` extra when present and writes `title.webp`.
+Imports the room GLB and renders it the way the runtime frames it: a VERTICAL field of view (three.js
+`PerspectiveCamera.fov`), rooms from the default high south-east camera (yaw 45, 40 deg, vertical FOV 28, walls s/e
+cut to stubs, tier5's camera-side city sectors hidden, the diorama filling ~82% of the frame), `title_city` from
+`a_cam` (its `fov` extra is vertical). Looks: daylight homes and McDoodle's, tier5 at night (glowing windows and
+lamps, point lights at the `l_*` anchors), the title at dusk over a lavender-to-peach sky gradient. A bare main desk
+(a_gear_desk with a `default`) gets that computer from props.glb, as in the game. 1600x900 over the room's backdrop
+colour (`src/ui/shell/hotspots.ts` ROOM_BACKDROP; unknown ids use `#fbf3e7`); writes `<out>/<id>.webp` (default
+`public/assets/rooms/`), and rewrites that room's entries in `<out>/hotspots.json` (`{room: {key: {x, y, w, h}}}` in
+percent of the image, x/y = top-left, only the keys the games use: bed/computer/fridge/door, tier4 + garage,
+McDoodle's counter/fryer/exit) and, for home tiers, `<out>/seats.json` (`{room: {computer_sit|staff_<n>_sit: {x, y,
+top}}}`: the seat anchor's floor point and the y of a seated head 1.3 m above it). Other rooms' entries are kept.
+`--hotspots <path>` overrides the JSON path; `--png` also keeps the PNG; `--samples <n>` (default 64). `studio` is
+skipped (it is only a live preview).
+
+```sh
+node blender/run.mjs stills -- tier0 tier1 tier2 tier3 tier4 tier5 mcdoodles title_city   # every still (~15 s)
+```
+
+## Baked gear and the desk default (docs/3D.md section 7)
+
+`F.ring_light`, `F.camera_tripod` and `F.softbox` tag their group `{gear: "ring_light" | "mirrorless_camera" |
+"softbox_kit"}`, and `F.workstation(..., gear_anchor=...)` tags a desk that already shows monitors `{gear:
+"workstation"}` (a baked laptop: `laptop_old` / `laptop_pro`). The runtime never places a second copy of a tagged id
+through `setGear`. A bare main desk (no monitors, no laptop) instead gets `a_gear_desk` extras `{default:
+"laptop_old", center: <m to the desk middle>}`: the runtime shows that laptop (in the middle of the desk) whenever
+setGear has not put a computer there. Tag any other hand-built stand-in the same way (`g['gear'] = '<props id>'`);
+`inspect.mjs --check room` rejects unknown ids.
+
+## Ceiling fixtures
+
+The cutaway diorama has no ceiling, so anything hanging from it (pendants, globes, bare bulbs, linear pendants)
+reads as a floating object. Rooms call `F.ceiling_light(...)` (same arguments as `F.ceiling_lamp`), which places only
+the `l_*` light anchor at the bulb height. Hanging decor near a wall (a hanging plant) is parented to that wall's
+decor so it hides with the wall.
+
+## Studio (`blender/rooms/studio.py` -> `public/assets/3d/studio.glb`)
+
+The character preview pedestal for the new-game Look editor: a 2.4 m round drum with a soft rim (blush top, rose
+body), no walls, `a_spawn` at the centre facing the default camera, one `l_key`, root extras `{studio: true}`.
+`node blender/inspect.mjs public/assets/3d/studio.glb --check studio`.
 
 ## Props (`blender/props/props.py` -> `public/assets/3d/props.glb`)
 
@@ -341,6 +378,7 @@ Preview: `node blender/run.mjs props --preview` -> `.previews/props_grid.png`, `
 - `hanging_plant(name='hanging_plant', location=(0, 0, 2.7), rotation=0, pot_mat='plastic_white', drop=0.8, seed=1, parent='root')`<br>Macrame-hung plant: location = ceiling hook point; the pot hangs `drop` m below, vines trail down.
 - `floor_lamp(style='arc', name='floor_lamp', location=(0, 0, 0), rotation=0, mat='metal_dark', light_anchor=None, obstacle=True)`<br>Floor lamp: style arc (arching over, dome shade toward local -Y) | shade (drum shade on a pole) | tripod (wooden tripod legs + drum shade). light_anchor='l_<name>' also creates the light anchor at the bulb.
 - `ceiling_lamp(style='pendant', name='ceiling_lamp', location=(0, 0, 2.7), rotation=0, drop=0.7, mat='plastic_white', light_anchor=None, parent='root')`<br>Ceiling light hung from `location` (the ceiling point): style pendant (dome on a cord) | globe (paper globe) | bulb (bare bulb on a cord) | flush (flush dome) | cage (industrial cage). Not an obstacle. light_anchor='l_<name>' creates a 'ceiling' light anchor at the bulb.
+- `ceiling_light(style='pendant', name='ceiling_lamp', location=(0, 0, 2.7), rotation=0, drop=0.7, mat=None, light_anchor=None, parent='root', color='#ffe2b8', intensity=1.5, distance=6.0)`<br>What a room places instead of a hanging fixture: the cutaway diorama has no ceiling, so a pendant, globe or bare bulb on a cord reads as an object floating in mid-air. Creates only the light anchor (when `light_anchor` is given) at the height where the bulb would hang; takes ceiling_lamp's arguments so a room can swap one call for the other. Returns the light empty or None.
 
 ### furniture.py, continued (defined in furniture2.py; call as `F.<name>`)
 

@@ -198,3 +198,52 @@ export function shadeHex(hex: string, f: number): string {
 export const DESK_GEAR = new Set(['phone_cracked', 'phone_pro', 'laptop_old', 'laptop_pro', 'workstation', 'lav_mic'])
 export const FLOOR_GEAR = new Set(['ring_light', 'softbox_kit', 'mirrorless_camera'])
 export function gearNode(id: string): string { return id.trim().toLowerCase().replace(/-/g, '_') }
+/** desk gear that counts as "the computer on the desk" (the a_gear_desk default stands in for these) */
+export const COMPUTER_GEAR = new Set(['laptop_old', 'laptop_pro', 'workstation'])
+
+export interface GearPlacement {
+  /** props.glb node name */
+  node: string
+  /** anchor name without the a_ prefix */
+  anchor: string
+  /** position among the items sharing a desk anchor (0 = centre) and how many share it */
+  slot: number
+  of: number
+  /** true for the a_gear_desk default (not one of the requested items) */
+  fallback: boolean
+}
+
+/**
+ * The gear rule (docs/3D.md section 7, "Baked gear"):
+ * 1. Ids are normalised ('ring-light' = 'ring_light'); duplicates count once.
+ * 2. An item the room already shows as furniture (a node tagged extras {gear:"<id>"}, e.g. tier2's ring light or a
+ *    main desk with monitors = 'workstation') is not placed again.
+ * 3. Desk items go on a_gear_desk (computers in the middle, phones / mics beside them); floor items take
+ *    a_gear_floor_1, _2 in order (an item with no free floor anchor is dropped); an explicit `anchor` wins.
+ * 4. When no computer (laptop_old / laptop_pro / workstation) ends up on a_gear_desk and the anchor has an extras
+ *    `default` the room does not already bake, that default is placed there, so a bare desk is never empty (Hustle
+ *    never calls setGear and still gets the laptop).
+ */
+export function planGear(items: readonly { id: string; anchor?: string }[], room: { baked: ReadonlySet<string>; deskDefault: string | null; hasDesk: boolean; floorAnchors: readonly string[] }): GearPlacement[] {
+  const seen = new Set<string>()
+  const desk: { node: string; anchor: string; fallback: boolean }[] = []
+  const out: GearPlacement[] = []
+  let floorI = 0
+  for (const it of items) {
+    const node = gearNode(it.id)
+    if (!node || seen.has(node)) continue
+    seen.add(node)
+    if (room.baked.has(node)) continue
+    const anchor = it.anchor ? normAnchor(it.anchor) : FLOOR_GEAR.has(node) ? room.floorAnchors[floorI++] : 'gear_desk'
+    if (!anchor) continue
+    if (anchor === 'gear_desk') { if (room.hasDesk) desk.push({ node, anchor, fallback: false }) }
+    else out.push({ node, anchor, slot: 0, of: 1, fallback: false })
+  }
+  const def = room.deskDefault ? gearNode(room.deskDefault) : ''
+  if (room.hasDesk && def && !room.baked.has(def) && !desk.some(d => COMPUTER_GEAR.has(d.node))) desk.push({ node: def, anchor: 'gear_desk', fallback: true })
+  // desk: computers in the middle, phones/mics at the sides
+  const order = (n: string) => (COMPUTER_GEAR.has(n) ? 0 : 1)
+  desk.sort((a, b) => order(a.node) - order(b.node))
+  desk.forEach((d, i) => out.push({ node: d.node, anchor: d.anchor, slot: i, of: desk.length, fallback: d.fallback }))
+  return out
+}
